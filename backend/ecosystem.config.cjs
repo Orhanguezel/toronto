@@ -3,8 +3,8 @@ module.exports = {
     {
       name: "toronto-backend",
       cwd: "/var/www/toronto/backend",
-      script: "dist/index.js",           // build çıktısı
-      interpreter: "/usr/bin/bun",       // istersen "node" da yazabilirsin
+      script: "dist/index.js",
+      interpreter: "$bun_path",
       exec_mode: "fork",
       instances: 1,
       watch: false,
@@ -12,7 +12,7 @@ module.exports = {
       max_memory_restart: "300M",
       env: {
         NODE_ENV: "production",
-        PORT: "8088"                     // Nginx'te /api -> 8082 ise burayı 8082 yap
+        PORT: "8088"
       },
       out_file: "/var/log/pm2/toronto-backend.out.log",
       error_file: "/var/log/pm2/toronto-backend.err.log",
