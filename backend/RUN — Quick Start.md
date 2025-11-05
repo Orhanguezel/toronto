@@ -46,6 +46,12 @@ FLUSH PRIVILEGES;
 -- ALTER USER 'app'@'%' IDENTIFIED BY 'yeniSifre';
 
 
+ALLOW_DROP=true bun run db:seed
+# gerekirse explicit:
+NODE_ENV=production ALLOW_DROP=true bun run db:seed
+
+
+
 
 ```sh
 pm2 flush
