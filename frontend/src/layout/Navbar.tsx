@@ -20,14 +20,30 @@ const Bar = styled.header`
 `;
 
 const Row = styled.div`
-  width: 100%; max-width: 1280px; margin: 0 auto;
+  width: 100%;
+  max-width: min(var(--navbar-max, 1640px), 96vw);
+  margin: 0 auto;
   padding-inline: clamp(14px, 4vw, 56px);
-  display: flex; align-items: center; justify-content: space-between;
-  gap: clamp(10px, 3vw, 48px); min-width: 0;
+
+  /* GRID: logo | nav | locale/burger */
+  display: grid; align-items: center;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "left center right";
+  column-gap: clamp(12px, 4vw, 56px);
+
+  container-type: inline-size;
 `;
 
-const Left  = styled.div`display:flex; align-items:center; gap:12px; flex:0 0 auto; min-width:0;`;
-const Right = styled.div`display:flex; align-items:center; gap:10px; flex:0 0 auto; min-width:0;`;
+const Left  = styled.div`
+  grid-area: left;
+  min-width: 0;
+`;
+const Right = styled.div`
+  grid-area: right;
+  justify-self: end;
+  min-width: 0;
+  display:flex; align-items:center; gap:10px;
+`;
 
 /* ================= LOGO ================= */
 const Brand = styled(Link)`
@@ -40,24 +56,47 @@ const LogoImg = styled.img`
 
 /* ========== DESKTOP NAV (sadece desktop) ========== */
 const DesktopNav = styled.nav`
-  flex:1 1 auto; min-width:0; display:flex; justify-content:center;
-  margin-inline: clamp(24px, 6vw, 160px);
+  grid-area: center;
+  min-width: 0;
+  display: flex; justify-content: center;
+  justify-self: center;
+
   @media (max-width:${BP}px){ display:none; }
 `;
 
+/* Cam tüp: 1280→863px ≈ 67.4% hedef oran */
 const Glass = styled.div`
-  position:relative; display:inline-flex; align-items:center; justify-content:center;
-  gap: clamp(10px, 2.4vw, 56px);
-  min-height: clamp(44px, 5.2vw, 82px);
-  padding: clamp(8px, 1.1vw, 18px) clamp(14px, 3vw, 32px);
-  border-radius:999px;
+  position:relative;
+  display:inline-flex; align-items:center; justify-content:center;
+
+  gap: clamp(10px, 3.5cqw, 49px);
+  min-height: clamp(44px, 6cqw, 82px);
+  padding-block: clamp(8px, 2cqw, 25px);
+  padding-inline: clamp(14px, 3cqw, 61px);
+  border-radius: clamp(20px, 2.6cqw, 33px);
+
+  width: clamp(max-content, 67.4cqw, 100%);
+  max-width: 100%;
+
+  /* >>> dropdown panelin kesilmemesi için */
+  overflow: visible;
 
   background:
     linear-gradient(180deg, rgba(7,12,24,.62), rgba(7,12,24,.46)),
     ${glassOverlay};
-  backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
+  backdrop-filter: blur(clamp(16px, 3.1cqw, 40px));
+  -webkit-backdrop-filter: blur(clamp(16px, 3.1cqw, 40px));
   border:1px solid rgba(255,255,255,.10);
   box-shadow:0 1px 0 rgba(255,255,255,.06) inset, 0 6px 24px rgba(0,0,0,.25);
+
+  @container (max-width: 1020px){
+    gap: clamp(8px, 2.4cqw, 36px);
+    padding-inline: clamp(10px, 2.4cqw, 24px);
+  }
+  @container (max-width: 920px){
+    gap: clamp(6px, 1.8cqw, 24px);
+    padding-inline: clamp(8px, 1.8cqw, 16px);
+  }
 `;
 
 const NavLink = styled(Link)`
@@ -68,13 +107,14 @@ const NavLink = styled(Link)`
   color:#EDEFF6; text-decoration:none;
   padding:clamp(5px,.5vw,9px) clamp(8px,1vw,14px);
   border-radius:12px; transition: color .15s, background .15s;
+
+  /* Sadece hover efekti, aktif (current) renklendirme YOK */
   &:hover{ color:#fff; background:rgba(255,255,255,.08); }
-  &[aria-current='page']{ color:#265DFF; font-weight:600; background:rgba(38,93,255,.12); }
 `;
 
 /* ===== Dropdown (desktop) ===== */
 const Dropdown = styled.div`
-  position:relative; z-index:1;
+  position:relative; z-index: 1;
   &::after{ content:''; position:absolute; left:0; right:0; top:100%; height:12px; }
 `;
 
@@ -90,12 +130,17 @@ const DropBtn = styled.button`
 
 const Panel = styled.div`
   position:absolute; left:50%; top:calc(100% + 12px); transform:translateX(-50%);
-  z-index:4500; min-width:240px; padding:10px; border-radius:14px;
+  /* Bar 4000, Panel bunun içinde daha da üstte olsun */
+  z-index: 41000;
+
+  min-width:240px; padding:10px; border-radius:14px;
   background: linear-gradient(180deg, rgba(7,12,24,.78), rgba(7,12,24,.66)), ${glassOverlay};
   backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   border:1px solid rgba(255,255,255,.10);
   box-shadow:0 8px 32px rgba(0,0,0,.35);
+
   opacity:0; pointer-events:none; translate:0 -6px; transition:opacity .15s, translate .15s;
+
   ${Dropdown}:hover &{ opacity:1; pointer-events:auto; translate:0 0; }
 `;
 
@@ -124,6 +169,7 @@ const BurgerBtn = styled.button`
 `;
 
 const DesktopLocale = styled.div`
+  display:flex; align-items:center;
   @media (max-width:${BP}px){ display:none; }
 `;
 
@@ -140,7 +186,7 @@ const MobilePanel = styled.nav`
   backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
   border-left:1px solid rgba(255,255,255,.08); box-shadow:-12px 0 32px rgba(0,0,0,.35);
   padding:18px 16px 24px; display:flex; flex-direction:column; gap:6px; overflow-y:auto;
-  z-index:10010;
+  z-index:10080;
 `;
 const MobileHeader = styled.div`display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px;`;
 const CloseBtn = styled.button`
@@ -150,7 +196,8 @@ const CloseBtn = styled.button`
 const MobileLink = styled(Link)`
   padding:12px 10px; border-radius:12px; color:#EDEFF6; text-decoration:none; font-size:16px; line-height:22px;
   &:hover{ background:rgba(255,255,255,.08); }
-  &[aria-current='page']{ color:#265DFF; font-weight:600; background:rgba(38,93,255,.12); }
+
+  /* Mobile'da da aktif renklendirme yok */
 `;
 
 /* ========== TYPES ========== */
@@ -160,7 +207,6 @@ type Path = '' | '/projects' | '/services' | '/ad-solutions' | '/references' | '
 export default function Navbar(
   props: { locale: string; contact?: { phones?: string[]; email?: string } }
 ) {
-  // props.contact opsiyonel; şu an UI’da kullanılmıyor.
   const { locale } = props;
 
   const pathname = usePathname();

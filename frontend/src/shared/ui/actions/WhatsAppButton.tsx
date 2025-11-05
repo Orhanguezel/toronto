@@ -1,10 +1,12 @@
+// src/shared/ui/actions/WhatsAppButton.tsx
 "use client";
 import * as React from "react";
 
 type Props = {
   number?: string;
   label?: string;
-  size?: number;   // px (default 66)
+  /** px veya CSS length (örn: 'clamp(44px,5vw,80px)') */
+  size?: number | string;   // default 66px
   className?: string;
   style?: React.CSSProperties;
 };
@@ -19,6 +21,11 @@ export default function WhatsAppButton({
   const n = number || process.env.NEXT_PUBLIC_WHATSAPP || "";
   const href = n ? `https://wa.me/${n}` : "https://wa.me";
 
+  const baseSize = typeof size === "number" ? `${size}px` : size;
+  // Dışarıdan style.width/height verilmişse onları kullan, yoksa baseSize
+  const boxW = style?.width ?? baseSize;
+  const boxH = style?.height ?? baseSize;
+
   return (
     <a
       href={href}
@@ -28,19 +35,19 @@ export default function WhatsAppButton({
       className={className}
       style={{
         display: "inline-block",
-        width: size,
-        height: size,
+        width: boxW,
+        height: boxH,
         lineHeight: 0,
-        borderRadius: 16,       // figma’daki kare radius hissini korumak için
+        borderRadius: 16,       // figma’daki kare radius hissi
         overflow: "hidden",
         cursor: "pointer",
-        ...style,
+        ...style,               // çağıran override edebilir
       }}
     >
-      {/* Figma'daki SVG (66x66) - birebir */}
+      {/* SVG, container’ı %100 doldurur (responsif) */}
       <svg
-        width={size}
-        height={size}
+        width="100%"
+        height="100%"
         viewBox="0 0 66 66"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
