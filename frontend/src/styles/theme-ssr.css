@@ -1,0 +1,45 @@
+/* Minimal global + tema değişkenleri — SSR'da gelir, FOUC olmaz */
+:root {
+  color-scheme: dark;
+
+  --container-max: 1280px;
+  --container-padX: clamp(16px, 4vw, 32px);
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --navbar-h: 96px;
+
+  --color-title: #FFFFFF;
+  --color-text: #FFFFFF;
+  --color-textSecondary: #B8C4E6;
+  --color-link: #218FFF;
+  --color-linkHover: #2865E0;
+  --color-surface: #0E1830;
+
+  --border-thin: 1px solid rgba(255,255,255,0.18);
+  --transition-normal: 0.3s ease-in-out;
+
+  --input-bg: #121C34;
+  --input-border: 1px solid rgba(255,255,255,0.18);
+  --input-placeholder: rgba(232,234,237,0.60);
+
+  --btn-primary-bg: #218FFF;
+  --btn-primary-text: #FFFFFF;
+  --btn-danger-bg: #dc3545;
+  --btn-danger-text: #FFFFFF;
+  --btn-ghost-border: rgba(255,255,255,0.12);
+}
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: #0A1020;
+  color: #FFFFFF;
+  font: 16px/1.5 'Segoe UI', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+a { color: var(--color-link); text-decoration: none; transition: color var(--transition-normal); }
+a:hover { color: var(--color-linkHover); }
+
+img, picture, video, canvas, svg { display: block; max-width: 100%; }
+img { height: auto; }
