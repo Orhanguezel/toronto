@@ -1,17 +1,21 @@
 'use client';
+
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import styled from 'styled-components';
 import { Button } from '@/shared/ui/buttons/Button';
 import { toast } from 'sonner';
-import NavOffset from "@/shared/ui/layout/NavOffset"; 
 
 const Wrap = styled.form`
-  display: grid; gap: 12px; max-width: 560px;
+  display: grid;
+  gap: 12px;
+  width: min(100%, 560px);
+  margin-inline: auto; /* yatay ortala */
 `;
 const Field = styled.label`
-  display: grid; gap: 6px;
+  display: grid;
+  gap: 6px;
 `;
 const Input = styled.input`
   padding: 10px 12px;
@@ -23,7 +27,9 @@ const Input = styled.input`
   outline: none;
 `;
 const TextArea = styled.textarea`
-  padding: 10px 12px; min-height: 140px; resize: vertical;
+  padding: 10px 12px;
+  min-height: 140px;
+  resize: vertical;
   border-radius: 10px;
   border: var(--input-border);
   background: var(--input-bg, var(--color-surface));
@@ -52,7 +58,7 @@ export default function ContactForm({ locale }: { locale: string }) {
       const res = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-locale': locale },
-        body: JSON.stringify(data)
+        body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error('Gönderilemedi');
       toast.success('Mesajınız alındı. Teşekkürler!');
@@ -64,8 +70,6 @@ export default function ContactForm({ locale }: { locale: string }) {
 
   return (
     <Wrap onSubmit={handleSubmit(onSubmit)}>
-            {/* Fixed navbar yüksekliğini ölç ve --navbar-h olarak ayarla */}
-      <NavOffset />
       <Field>
         <span>Ad Soyad</span>
         <Input {...register('name')} placeholder="Adınız" />
@@ -81,7 +85,10 @@ export default function ContactForm({ locale }: { locale: string }) {
         <TextArea {...register('message')} placeholder="Mesajınız" />
         {errors.message && <Hint>{errors.message.message}</Hint>}
       </Field>
+
+      {/* honeypot */}
       <input type="text" tabIndex={-1} autoComplete="off" style={{ display: 'none' }} {...register('website')} />
+
       <Button type="submit" disabled={isSubmitting}>Gönder</Button>
       <Hint>Spam koruması aktif. Gerekirse reCAPTCHA eklenecek.</Hint>
     </Wrap>

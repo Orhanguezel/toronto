@@ -1,3 +1,4 @@
+// src/features/home/Hero.tsx
 "use client";
 
 import React from "react";
@@ -12,7 +13,6 @@ const COPY: Record<string, { title: string; sub: string; cta: string }> = {
   de: { title: "Wachsen Sie mit Toronto", sub: "Verkaufsprojekte, kreative Services und wirkungsvolle Werbelösungen.", cta: "Mehr erfahren" },
 };
 
-/* ========== OUTER (tam tavanda, yatay taşma yok) ========== */
 const Wrap = styled.section`
   position: relative;
   width: 100%;
@@ -22,7 +22,6 @@ const Wrap = styled.section`
   background: ${({ theme }) => theme.colors.background};
 `;
 
-/* ========== STAGE (1280×1401 oran) ========== */
 const Stage = styled.div`
   position: relative;
   width: 100%;
@@ -44,7 +43,6 @@ const Stage = styled.div`
   }
 `;
 
-/* ========== BLURS ========== */
 const BlurBlue = styled.div`
   position: absolute; left: 15.75%; top: 19.061%;
   width: 68.75%; height: 56.163%;
@@ -58,7 +56,6 @@ const BlurRoyal = styled.div`
   filter: blur(clamp(30px, 8vw, 120px)); opacity: .75;
 `;
 
-/* ========== CONTENT ========== */
 const TextBlock = styled.div`
   position: absolute;
   left: 50%; transform: translateX(-50%);
@@ -112,12 +109,28 @@ const CtaFill = styled.span`
   font-weight: 500; font-size: clamp(12px, 1.2vw, 15px);
 `;
 
+/* ===== WhatsApp FAB =====
+   Tasarım: 1280x1401 sahnede X=1114, Y=661  => X% = 87.03125, Y% = 47.1806
+   Y (üstten) oranını koruyoruz; ancak aşırı büyük ekranlarda ilk ekranda
+   kalması için top değerine bir tavan koyuyoruz (100vh - navbar - yarı-buton - margin). */
 const WhatsAppFab = styled.div`
   position: absolute;
-  left: 87.03125%; top: 47.1806%;
+
+  /* Buton boyutunu değişkene alalım (CTA ile aynı ölçek mantığı) */
+  --wa-size: clamp(44px, 6vw, 84px);
+
+  /* X: tasarım yüzdesi; kenar güvenliği için clamp */
+  left: clamp(72%, 87.03125%, 92%);
+
+  /* Y (merkez): tasarım yüzdesi ile orantılı,
+     fakat ilk ekranda görünür kalması için viewport tavanı:
+     centerY <= 100vh - navbar - halfSize - 16px */
+  top: min(
+    47.1806%,
+    calc(100vh - var(--navbar-h, 96px) - calc(var(--wa-size) * 0.5) - 16px)
+  );
+
   transform: translate(-50%, -50%);
-  width: clamp(44px, 6.2vw, 79px);
-  height: clamp(44px, 6.2vw, 79px);
   z-index: 3;
 `;
 
@@ -136,8 +149,13 @@ export default function Hero({ locale, whatsapp }: HeroProps) {
             <CtaFill>{t.cta}</CtaFill>
           </CtaShell>
         </TextBlock>
+
         <WhatsAppFab>
-          <WhatsAppButton number={whatsapp} />
+          <WhatsAppButton
+            number={whatsapp}
+            label="WhatsApp ile sohbet et"
+            style={{ width: 'var(--wa-size)', height: 'var(--wa-size)' }}
+          />
         </WhatsAppFab>
       </Stage>
     </Wrap>
