@@ -5,7 +5,8 @@ import LoginForm from "@/features/login/LoginForm";
 
 type Locale = "tr" | "en" | "de";
 
-export const dynamic = "force-dynamic"; // build'da bekleme yok
+// Build'da üretme → runtime SSR
+export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export const metadata: Metadata = {
@@ -13,33 +14,22 @@ export const metadata: Metadata = {
   description: "Hesabınıza giriş yapın",
 };
 
-type PageProps = {
+export default function LoginPage({
+  params,
+  searchParams,
+}: {
   params: { locale: Locale };
   searchParams?: { next?: string };
-};
-
-export default function LoginPage({ params, searchParams }: PageProps) {
+}) {
   const { locale } = params;
-
-  // Yalnızca mutlak, site içi path kabul et; yoksa /admin
-  const rawNext = searchParams?.next;
-  const next =
-    rawNext && /^\/[a-z0-9/_\-?=&.%#]*$/i.test(rawNext) ? rawNext : "/admin";
+  const next = (searchParams?.next as string | undefined) ?? `/${locale}`;
 
   return (
-    <main
-      style={{
-        minHeight: "100dvh",
-        display: "grid",
-        placeItems: "center",
-        padding: "calc(var(--navbar-h, 96px) + 24px) 0 64px",
-      }}
-    >
+    <main style={{ minHeight: "100dvh", display: "grid", placeItems: "center",
+                   padding: "calc(var(--navbar-h, 96px) + 24px) 0 64px" }}>
       <Container style={{ width: "100%" }}>
         <header style={{ textAlign: "center", marginBottom: 16 }}>
-          <H1>
-            {locale === "tr" ? "Giriş Yap" : locale === "de" ? "Anmelden" : "Sign In"}
-          </H1>
+          <H1>{locale === "tr" ? "Giriş Yap" : locale === "de" ? "Anmelden" : "Sign In"}</H1>
           <Lead>
             {locale === "tr"
               ? "E-posta ve şifrenizle giriş yapın veya Google ile devam edin."
@@ -48,7 +38,6 @@ export default function LoginPage({ params, searchParams }: PageProps) {
               : "Sign in with email/password or continue with Google."}
           </Lead>
         </header>
-
         <div style={{ display: "grid", justifyItems: "center" }}>
           <LoginForm locale={locale} next={next} />
         </div>
