@@ -1,16 +1,15 @@
+// src/app/[locale]/contact/page.tsx
 import type { Metadata } from "next";
 import LandingClient from "@/landing/LandingClient";
 import { canonicalFor, languagesMap } from "@/shared/seo/alternates";
 
 type Locale = "tr" | "en" | "de";
 
-export const revalidate = 600;
+// Bu sayfayı build aşamasında üretme → runtime'da SSR
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export function generateMetadata({
-  params,
-}: {
-  params: { locale: Locale };
-}): Metadata {
+export function generateMetadata({ params }: { params: { locale: Locale } }): Metadata {
   const { locale } = params;
   return {
     title: "İletişim",
@@ -22,11 +21,7 @@ export function generateMetadata({
   };
 }
 
-export default function ContactPage({
-  params,
-}: {
-  params: { locale: Locale };
-}) {
+export default function ContactPage({ params }: { params: { locale: Locale } }) {
   const { locale } = params;
   return <LandingClient locale={locale} initialSection="contact" />;
 }
