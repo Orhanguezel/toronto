@@ -5,7 +5,7 @@
     "build": "next build",
     "build:webpack": "next build --webpack",
     "analyze": "ANALYZE=true next build --webpack",
-    "start": "next start -p 3000",
+    "start": "next start -p 3010",
     "test": "NEXT_PUBLIC_DISABLE_SENTRY=1 playwright test",
     "test:ui": "NEXT_PUBLIC_DISABLE_SENTRY=1 playwright test --ui",
     "test:smoke": "NEXT_PUBLIC_DISABLE_SENTRY=1 BASE_URL=http://localhost:3000/tr playwright test tests/smoke.spec.ts",
