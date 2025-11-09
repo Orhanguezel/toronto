@@ -1,15 +1,14 @@
-// src/app/[locale]/page.tsx
-
 import type { Metadata } from "next";
-import { canonicalFor, languagesMap } from "@/shared/seo/alternates";
 import LandingClient from "@/landing/LandingClient";
+import { canonicalFor, languagesMap } from "@/shared/seo/alternates";
 
-export const revalidate = 300; // ISR
+type Locale = "tr" | "en" | "de";
 
-export async function generateMetadata(
-  { params }: { params: Promise<{ locale: "tr" | "en" | "de" }> }
-): Promise<Metadata> {
-  const { locale } = await params;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export function generateMetadata({ params }: { params: { locale: Locale } }): Metadata {
+  const { locale } = params;
   return {
     title: "Toronto",
     description: "Toronto portfolio site – hizmetler, projeler ve reklam çözümleri",
@@ -17,12 +16,7 @@ export async function generateMetadata(
   };
 }
 
-export default async function HomePage({
-  params,
-}: {
-  params: Promise<{ locale: "tr" | "en" | "de" }>;
-}) {
-  const { locale } = await params;
-  // Tek sayfa landing → ana girişte 'hero' bölümüne gitmeye gerek yok; "" veriyoruz
+export default function HomePage({ params }: { params: { locale: Locale } }) {
+  const { locale } = params;
   return <LandingClient locale={locale} initialSection="" />;
 }

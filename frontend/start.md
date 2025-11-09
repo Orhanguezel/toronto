@@ -7,6 +7,9 @@ bun run test:a11y
 bun run test:intl
 bun run test:ui
 
+rm -rf dist .tsbuildinfo
+bun run build
+
 
 bun run build
 pm2 start toronto-frontend
