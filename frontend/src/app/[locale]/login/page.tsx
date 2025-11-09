@@ -5,27 +5,26 @@ import LoginForm from "@/features/login/LoginForm";
 
 type Locale = "tr" | "en" | "de";
 
+export const dynamic = "force-dynamic"; // build'da bekleme yok
+export const revalidate = 0;
+
 export const metadata: Metadata = {
   title: "Giriş Yap",
   description: "Hesabınıza giriş yapın",
 };
 
-export default async function LoginPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ locale: Locale }>;
-  // Bazı ortamlarda Promise gelebiliyor:
-  searchParams?: { next?: string } | Promise<{ next?: string }>;
-}) {
-  const { locale } = await params;
+type PageProps = {
+  params: { locale: Locale };
+  searchParams?: { next?: string };
+};
 
-  const sp =
-    searchParams && typeof (searchParams as any)?.then === "function"
-      ? await (searchParams as Promise<{ next?: string }>)
-      : ((searchParams as { next?: string } | undefined) ?? {});
+export default function LoginPage({ params, searchParams }: PageProps) {
+  const { locale } = params;
 
-  const next = sp.next || `/${locale}`;
+  // Yalnızca mutlak, site içi path kabul et; yoksa /admin
+  const rawNext = searchParams?.next;
+  const next =
+    rawNext && /^\/[a-z0-9/_\-?=&.%#]*$/i.test(rawNext) ? rawNext : "/admin";
 
   return (
     <main
@@ -38,7 +37,9 @@ export default async function LoginPage({
     >
       <Container style={{ width: "100%" }}>
         <header style={{ textAlign: "center", marginBottom: 16 }}>
-          <H1>{locale === "tr" ? "Giriş Yap" : locale === "de" ? "Anmelden" : "Sign In"}</H1>
+          <H1>
+            {locale === "tr" ? "Giriş Yap" : locale === "de" ? "Anmelden" : "Sign In"}
+          </H1>
           <Lead>
             {locale === "tr"
               ? "E-posta ve şifrenizle giriş yapın veya Google ile devam edin."

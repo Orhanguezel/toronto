@@ -1,4 +1,3 @@
-// next.config.ts
 import type { NextConfig } from "next";
 import createBundleAnalyzer from "@next/bundle-analyzer";
 import mdx from "@next/mdx";
@@ -11,10 +10,11 @@ const withMDX = mdx();
 const nextConfig = {
   reactStrictMode: true,
   compiler: { styledComponents: true },
-  // ⬇️ Artık experimental altında değil
-  typedRoutes: true,
+  typedRoutes: true, // Next 16'da üst seviyede
+  staticPageGenerationTimeout: 120, // build'da uzun süren sayfalara tampon
+
   images: {
-    formats: ["image/avif", "image/webp"] as const, // tip daraltma
+    formats: ["image/avif", "image/webp"] as const,
     remotePatterns: [
       { protocol: "https", hostname: "**.cloudinary.com" },
       { protocol: "https", hostname: "**.imgix.net" },
