@@ -1,8 +1,9 @@
-// =============================================================
-// FILE: src/modules/siteSettings/admin.routes.ts
-// =============================================================
+// src/modules/siteSettings/admin.routes.ts
 import type { FastifyInstance } from "fastify";
 import {
+  adminGetSettingsAggregate,
+  adminUpsertSettingsAggregate,
+  // (opsiyonel) granular uçlar istersen:
   adminListSiteSettings,
   adminGetSiteSettingByKey,
   adminCreateSiteSetting,
@@ -12,21 +13,24 @@ import {
   adminDeleteSiteSetting,
 } from "./admin.controller";
 
-const BASE = "/admin/site_settings";
+const BASE = "/site-settings"; // ⬅️ hyphen
 
 export async function registerSiteSettingsAdmin(app: FastifyInstance) {
-  // Read (admin görünümü için istersen public GET'leri de kullanabilirsin)
-  app.get(`${BASE}`,        { config: { auth: true } }, adminListSiteSettings);
-  app.get(`${BASE}/:key`,   { config: { auth: true } }, adminGetSiteSettingByKey);
+  // FE'nin kullandıkları:
+  app.get(`${BASE}`,  { config: { auth: true } }, adminGetSettingsAggregate);
+  app.put(`${BASE}`,  { config: { auth: true } }, adminUpsertSettingsAggregate);
 
-  // Write
-  app.post(`${BASE}`,       { config: { auth: true } }, adminCreateSiteSetting);
-  app.put(`${BASE}/:key`,   { config: { auth: true } }, adminUpdateSiteSetting);
-
-  // Bulk upsert
+  // (İstersen) granular uçları da açık tut:
+  app.get(`${BASE}/list`,     { config: { auth: true } }, adminListSiteSettings);
+  app.get(`${BASE}/:key`,     { config: { auth: true } }, adminGetSiteSettingByKey);
+  app.post(`${BASE}`,         { config: { auth: true } }, adminCreateSiteSetting);
+  app.put(`${BASE}/:key`,     { config: { auth: true } }, adminUpdateSiteSetting);
   app.post(`${BASE}/bulk-upsert`, { config: { auth: true } }, adminBulkUpsertSiteSettings);
+  app.delete(`${BASE}`,       { config: { auth: true } }, adminDeleteManySiteSettings);
+  app.delete(`${BASE}/:key`,  { config: { auth: true } }, adminDeleteSiteSetting);
 
-  // Delete (filtreli toplu silme + tek kayıt silme)
-  app.delete(`${BASE}`,     { config: { auth: true } }, adminDeleteManySiteSettings);
-  app.delete(`${BASE}/:key`,{ config: { auth: true } }, adminDeleteSiteSetting);
+  // Geriye dönük uyumluluk istiyorsan eski underscore path’i buraya yönlendir:
+  const LEGACY = "/admin/site_settings";
+  app.get(LEGACY,  { config: { auth: true } }, adminGetSettingsAggregate);
+  app.put(LEGACY,  { config: { auth: true } }, adminUpsertSettingsAggregate);
 }

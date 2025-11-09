@@ -12,6 +12,23 @@ import {
 import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/mysql-core";
 import { randomUUID } from "crypto";
+import { LOCALES } from "@/core/i18n";
+import { env } from "@/core/env";
+
+/** Storage (join için) */
+import { storageAssets } from "@/modules/storage/schema";
+
+/* -------------------- URL helpers (storage ile uyumlu) -------------------- */
+const encSeg = (s: string) => encodeURIComponent(s);
+const encPath = (p: string) => p.split("/").map(encSeg).join("/");
+
+export function publicUrlOf(bucket: string, path: string, providerUrl?: string | null): string {
+  if (providerUrl) return providerUrl;
+  const cdnBase = (env.CDN_PUBLIC_BASE || "").replace(/\/+$/, "");
+  if (cdnBase) return `${cdnBase}/${encSeg(bucket)}/${encPath(path)}`;
+  const apiBase = (env.PUBLIC_API_BASE || "").replace(/\/+$/, "");
+  return `${apiBase || ""}/storage/${encSeg(bucket)}/${encPath(path)}`;
+}
 
 /* ============== helpers ============== */
 type Sortable = "created_at" | "updated_at" | "display_order";
@@ -91,9 +108,30 @@ export type ReferenceMerged = {
   meta_title: string | null;
   meta_description: string | null;
   locale_resolved: string | null;
+
+  // storage join alanları (featured asset)
+  asset_bucket?: string | null;
+  asset_path?: string | null;
+  asset_url?: string | null;
+  asset_width?: number | null;
+  asset_height?: number | null;
+  asset_mime?: string | null;
 };
 
-function baseReferenceSelect(reqI: any, defI: any) {
+export type ReferenceView = ReferenceMerged & {
+  /** featured_image (direct) veya storage asset üzerinden çözümlenmiş nihai URL */
+  featured_image_url_resolved: string | null;
+  featured_asset?: {
+    bucket: string;
+    path: string;
+    url: string | null;
+    width: number | null;
+    height: number | null;
+    mime: string | null;
+  } | null;
+};
+
+function baseReferenceSelect(reqI: any, defI: any, sa: any) {
   return {
     id: references.id,
     is_published: references.is_published,
@@ -115,6 +153,14 @@ function baseReferenceSelect(reqI: any, defI: any) {
     locale_resolved: sql<string>`
       CASE WHEN ${reqI.id} IS NOT NULL THEN ${reqI.locale} ELSE ${defI.locale} END
     `.as("locale_resolved"),
+
+    // storage join (featured asset)
+    asset_bucket: sa.bucket,
+    asset_path: sa.path,
+    asset_url: sa.url,
+    asset_width: sa.width,
+    asset_height: sa.height,
+    asset_mime: sa.mime,
   };
 }
 
@@ -122,6 +168,7 @@ function baseReferenceSelect(reqI: any, defI: any) {
 export async function listReferences(params: ReferenceListParams) {
   const reqI = alias(referencesI18n, "ri_req");
   const defI = alias(referencesI18n, "ri_def");
+  const saFeat = alias(storageAssets, "sa_feat");
 
   const filters: SQL[] = [];
   const pub = to01(params.is_published);
@@ -144,7 +191,7 @@ export async function listReferences(params: ReferenceListParams) {
     )`);
   }
 
-  const whereExpr: SQL | undefined = filters.length ? (and(...filters) as SQL) : undefined;
+  const whereExpr: SQL = filters.length ? (and(...filters) as SQL) : sql`1=1`;
 
   const ord = parseOrder(params.orderParam, params.sort, params.order);
   const orderBy = ord
@@ -154,54 +201,134 @@ export async function listReferences(params: ReferenceListParams) {
   const take = params.limit && params.limit > 0 ? params.limit : 50;
   const skip = params.offset && params.offset >= 0 ? params.offset : 0;
 
+  // ---- rows
   const rows = await db
-    .select(baseReferenceSelect(reqI, defI))
+    .select(baseReferenceSelect(reqI, defI, saFeat))
     .from(references)
     .leftJoin(reqI, and(eq(reqI.reference_id, references.id), eq(reqI.locale, params.locale)))
     .leftJoin(defI, and(eq(defI.reference_id, references.id), eq(defI.locale, params.defaultLocale)))
-    .where(whereExpr!)
+    .leftJoin(saFeat, eq(saFeat.id, references.featured_image_asset_id))
+    .where(whereExpr)
     .orderBy(orderBy)
     .limit(take)
     .offset(skip);
 
+  // ---- total
   const cnt = await db
     .select({ c: sql<number>`COUNT(1)` })
     .from(references)
     .leftJoin(reqI, and(eq(reqI.reference_id, references.id), eq(reqI.locale, params.locale)))
     .leftJoin(defI, and(eq(defI.reference_id, references.id), eq(defI.locale, params.defaultLocale)))
-    .where(whereExpr!);
+    .where(whereExpr);
 
   const total = cnt[0]?.c ?? 0;
-  return { items: rows as unknown as ReferenceMerged[], total };
+
+  // ---- map resolved url
+  const items: ReferenceView[] = (rows as any[]).map((r) => {
+    const assetBucket = r.asset_bucket as string | null;
+    const assetPath = r.asset_path as string | null;
+    const assetUrl = r.asset_url as string | null;
+
+    const featured_image_url_resolved =
+      r.featured_image || (assetBucket && assetPath ? publicUrlOf(assetBucket, assetPath, assetUrl) : null);
+
+    return {
+      ...(r as ReferenceMerged),
+      featured_image_url_resolved,
+      featured_asset: assetBucket && assetPath
+        ? {
+            bucket: assetBucket,
+            path: assetPath,
+            url: assetUrl ?? null,
+            width: (r.asset_width ?? null) as number | null,
+            height: (r.asset_height ?? null) as number | null,
+            mime: (r.asset_mime ?? null) as string | null,
+          }
+        : null,
+    };
+  });
+
+  return { items, total };
 }
+
 
 export async function getReferenceMergedById(locale: string, defaultLocale: string, id: string) {
   const reqI = alias(referencesI18n, "ri_req");
   const defI = alias(referencesI18n, "ri_def");
+  const saFeat = alias(storageAssets, "sa_feat");
+
   const rows = await db
-    .select(baseReferenceSelect(reqI, defI))
+    .select(baseReferenceSelect(reqI, defI, saFeat))
     .from(references)
     .leftJoin(reqI, and(eq(reqI.reference_id, references.id), eq(reqI.locale, locale)))
     .leftJoin(defI, and(eq(defI.reference_id, references.id), eq(defI.locale, defaultLocale)))
+    .leftJoin(saFeat, eq(saFeat.id, references.featured_image_asset_id))
     .where(eq(references.id, id))
     .limit(1);
-  return (rows[0] ?? null) as unknown as ReferenceMerged | null;
+
+  const r: any = rows[0];
+  if (!r) return null;
+
+  const assetBucket = r.asset_bucket as string | null;
+  const assetPath = r.asset_path as string | null;
+  const assetUrl = r.asset_url as string | null;
+
+  const featured_image_url_resolved =
+    r.featured_image || (assetBucket && assetPath ? publicUrlOf(assetBucket, assetPath, assetUrl) : null);
+
+  return {
+    ...(r as ReferenceMerged),
+    featured_image_url_resolved,
+    featured_asset: assetBucket && assetPath ? {
+      bucket: assetBucket,
+      path: assetPath,
+      url: assetUrl ?? null,
+      width: (r.asset_width ?? null) as number | null,
+      height: (r.asset_height ?? null) as number | null,
+      mime: (r.asset_mime ?? null) as string | null,
+    } : null,
+  } as unknown as ReferenceView;
 }
 
 export async function getReferenceMergedBySlug(locale: string, defaultLocale: string, slug: string) {
   const reqI = alias(referencesI18n, "ri_req");
   const defI = alias(referencesI18n, "ri_def");
+  const saFeat = alias(storageAssets, "sa_feat");
+
   const rows = await db
-    .select(baseReferenceSelect(reqI, defI))
+    .select(baseReferenceSelect(reqI, defI, saFeat))
     .from(references)
     .leftJoin(reqI, and(eq(reqI.reference_id, references.id), eq(reqI.locale, locale)))
     .leftJoin(defI, and(eq(defI.reference_id, references.id), eq(defI.locale, defaultLocale)))
+    .leftJoin(saFeat, eq(saFeat.id, references.featured_image_asset_id))
     .where(
       sql`( ${reqI.id} IS NOT NULL AND ${reqI.slug} = ${slug} )
           OR ( ${reqI.id} IS NULL AND ${defI.slug} = ${slug} )`,
     )
     .limit(1);
-  return (rows[0] ?? null) as unknown as ReferenceMerged | null;
+
+  const r: any = rows[0];
+  if (!r) return null;
+
+  const assetBucket = r.asset_bucket as string | null;
+  const assetPath = r.asset_path as string | null;
+  const assetUrl = r.asset_url as string | null;
+
+  const featured_image_url_resolved =
+    r.featured_image || (assetBucket && assetPath ? publicUrlOf(assetBucket, assetPath, assetUrl) : null);
+
+  return {
+    ...(r as ReferenceMerged),
+    featured_image_url_resolved,
+    featured_asset: assetBucket && assetPath ? {
+      bucket: assetBucket,
+      path: assetPath,
+      url: assetUrl ?? null,
+      width: (r.asset_width ?? null) as number | null,
+      height: (r.asset_height ?? null) as number | null,
+      mime: (r.asset_mime ?? null) as string | null,
+    } : null,
+  } as unknown as ReferenceView;
 }
 
 /* ============== parent write ============== */
@@ -259,6 +386,17 @@ export async function upsertReferenceI18n(
   await db.insert(referencesI18n).values(insertVals).onDuplicateKeyUpdate({ set: setObj });
 }
 
+export async function upsertReferenceI18nAllLocales(
+  referenceId: string,
+  data: Partial<Pick<NewReferenceI18nRow,
+    "title" | "slug" | "summary" | "content" | "featured_image_alt" | "meta_title" | "meta_description"
+  >>
+) {
+  for (const l of LOCALES) {
+    await upsertReferenceI18n(referenceId, l, data);
+  }
+}
+
 export async function getReferenceI18nRow(referenceId: string, locale: string) {
   const rows = await db.select().from(referencesI18n)
     .where(and(eq(referencesI18n.reference_id, referenceId), eq(referencesI18n.locale, locale)))
@@ -266,7 +404,7 @@ export async function getReferenceI18nRow(referenceId: string, locale: string) {
   return rows[0] ?? null;
 }
 
-/* ============== GALLERY repo ============== */
+/* ============== GALLERY repo (storage join) ============== */
 export type ReferenceImageMerged = {
   id: string;
   reference_id: string;
@@ -280,9 +418,29 @@ export type ReferenceImageMerged = {
   alt: string | null;
   caption: string | null;
   locale_resolved: string | null;
+
+  // storage join
+  img_bucket?: string | null;
+  img_path?: string | null;
+  img_url?: string | null;
+  img_width?: number | null;
+  img_height?: number | null;
+  img_mime?: string | null;
 };
 
-function baseImageSelect(reqI: any, defI: any) {
+export type ReferenceImageView = ReferenceImageMerged & {
+  image_url_resolved: string | null;
+  asset?: {
+    bucket: string;
+    path: string;
+    url: string | null;
+    width: number | null;
+    height: number | null;
+    mime: string | null;
+  } | null;
+};
+
+function baseImageSelect(reqI: any, defI: any, sa: any) {
   return {
     id: referenceImages.id,
     reference_id: referenceImages.reference_id,
@@ -298,20 +456,51 @@ function baseImageSelect(reqI: any, defI: any) {
     locale_resolved: sql<string>`
       CASE WHEN ${reqI.id} IS NOT NULL THEN ${reqI.locale} ELSE ${defI.locale} END
     `.as("locale_resolved"),
+
+    // storage join
+    img_bucket: sa.bucket,
+    img_path: sa.path,
+    img_url: sa.url,
+    img_width: sa.width,
+    img_height: sa.height,
+    img_mime: sa.mime,
   };
 }
 
 export async function listReferenceImagesMerged(referenceId: string, locale: string, defaultLocale: string) {
   const reqI = alias(referenceImagesI18n, "rii_req");
   const defI = alias(referenceImagesI18n, "rii_def");
+  const saImg = alias(storageAssets, "sa_img");
+
   const rows = await db
-    .select(baseImageSelect(reqI, defI))
+    .select(baseImageSelect(reqI, defI, saImg))
     .from(referenceImages)
     .leftJoin(reqI, and(eq(reqI.image_id, referenceImages.id), eq(reqI.locale, locale)))
     .leftJoin(defI, and(eq(defI.image_id, referenceImages.id), eq(defI.locale, defaultLocale)))
+    .leftJoin(saImg, eq(saImg.id, referenceImages.asset_id))
     .where(eq(referenceImages.reference_id, referenceId))
     .orderBy(asc(referenceImages.display_order), asc(referenceImages.created_at));
-  return rows as unknown as ReferenceImageMerged[];
+
+  const items: ReferenceImageView[] = (rows as any[]).map((r) => {
+    const b = r.img_bucket as string | null;
+    const p = r.img_path as string | null;
+    const u = r.img_url as string | null;
+    const urlResolved = r.image_url || (b && p ? publicUrlOf(b, p, u) : null);
+    return {
+      ...(r as ReferenceImageMerged),
+      image_url_resolved: urlResolved,
+      asset: b && p ? {
+        bucket: b,
+        path: p,
+        url: u ?? null,
+        width: (r.img_width ?? null) as number | null,
+        height: (r.img_height ?? null) as number | null,
+        mime: (r.img_mime ?? null) as string | null,
+      } : null,
+    };
+  });
+
+  return items;
 }
 
 export async function createReferenceImageParent(values: NewReferenceImageRow) {
@@ -355,4 +544,13 @@ export async function upsertReferenceImageI18n(
   if (Object.keys(setObj).length === 1) return;
 
   await db.insert(referenceImagesI18n).values(insertVals).onDuplicateKeyUpdate({ set: setObj });
+}
+
+export async function upsertReferenceImageI18nAllLocales(
+  imageId: string,
+  data: Partial<Pick<NewReferenceImageI18nRow, "alt" | "caption">>
+) {
+  for (const l of LOCALES) {
+    await upsertReferenceImageI18n(imageId, l, data);
+  }
 }

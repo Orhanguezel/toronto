@@ -1,12 +1,13 @@
 import type { RouteHandler } from "fastify";
 import type { MultipartFile } from "@fastify/multipart";
+import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db } from "@/db/client";
 import { storageAssets } from "./schema";
 import { getCloudinaryConfig, uploadBufferAuto } from "./cloudinary";
 import { env } from "@/core/env";
 
-/* ----------------------------- küçük yardımcılar ---------------------------- */
+/* ----------------------------- yardımcılar ----------------------------- */
 const encSeg = (s: string) => encodeURIComponent(s);
 const encPath = (p: string) => p.split("/").map(encSeg).join("/");
 
@@ -24,14 +25,14 @@ function publicUrlOf(bucket: string, path: string, providerUrl?: string | null):
 export const publicServe: RouteHandler<{ Params: { bucket: string; "*": string } }> = async (req, reply) => {
   const { bucket } = req.params;
   const path = req.params["*"];
-  const rows = await db.select().from(storageAssets).where(
-    (storageAssets.bucket as any).eq?.(bucket) ?? ({} as any)
-  ).execute?.() as any[] | undefined;
 
-  const row = Array.isArray(rows)
-    ? rows.find((r) => r.path === path)
-    : null;
+  const rows = await db
+    .select()
+    .from(storageAssets)
+    .where(and(eq(storageAssets.bucket, bucket), eq(storageAssets.path, path)))
+    .limit(1);
 
+  const row = rows[0];
   if (row?.url) return reply.redirect(302, row.url);
   return reply.code(404).send({ message: "not_found" });
 };

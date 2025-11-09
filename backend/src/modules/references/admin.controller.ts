@@ -21,6 +21,7 @@ import {
   updateReferenceParent,
   deleteReferenceParent,
   upsertReferenceI18n,
+  upsertReferenceI18nAllLocales,
   getReferenceI18nRow,
   packContent,
 
@@ -29,6 +30,7 @@ import {
   updateReferenceImageParent,
   deleteReferenceImageParent,
   upsertReferenceImageI18n,
+  upsertReferenceImageI18nAllLocales,
 } from "./repository";
 
 const toBool = (v: unknown): boolean =>
@@ -99,7 +101,7 @@ export const createReferenceAdmin: RouteHandler<{ Body: UpsertReferenceBody }> =
       updated_at: new Date() as any,
     });
 
-    await upsertReferenceI18n(id, locale, {
+    const payload = {
       title: b.title.trim(),
       slug: b.slug.trim(),
       summary: typeof b.summary === "string" ? b.summary : (b.summary ?? null),
@@ -107,7 +109,14 @@ export const createReferenceAdmin: RouteHandler<{ Body: UpsertReferenceBody }> =
       featured_image_alt: typeof b.featured_image_alt === "string" ? b.featured_image_alt.trim() : (b.featured_image_alt ?? null),
       meta_title: typeof b.meta_title === "string" ? b.meta_title.trim() : (b.meta_title ?? null),
       meta_description: typeof b.meta_description === "string" ? b.meta_description.trim() : (b.meta_description ?? null),
-    });
+    };
+
+    const replicateAll = b.replicate_all_locales ?? true;
+    if (replicateAll) {
+      await upsertReferenceI18nAllLocales(id, payload);
+    } else {
+      await upsertReferenceI18n(id, locale, payload);
+    }
 
     const row = await getReferenceMergedById(locale, DEFAULT_LOCALE, id);
     return reply.code(201).send(row);
@@ -163,44 +172,49 @@ export const updateReferenceAdmin: RouteHandler<{ Params: { id: string }; Body: 
       typeof b.meta_description !== "undefined";
 
     if (hasI18nFields) {
-      const exists = await getReferenceI18nRow(req.params.id, locale);
+      const payload = {
+        title: typeof b.title === "string" ? b.title.trim() : undefined,
+        slug: typeof b.slug === "string" ? b.slug.trim() : undefined,
+        summary:
+          typeof b.summary !== "undefined"
+            ? (typeof b.summary === "string" ? b.summary : (b.summary ?? null))
+            : undefined,
+        content: typeof b.content === "string" ? packContent(b.content) : undefined,
+        featured_image_alt:
+          typeof b.featured_image_alt !== "undefined"
+            ? (typeof b.featured_image_alt === "string" ? b.featured_image_alt.trim() : (b.featured_image_alt ?? null))
+            : undefined,
+        meta_title:
+          typeof b.meta_title !== "undefined"
+            ? (typeof b.meta_title === "string" ? b.meta_title.trim() : (b.meta_title ?? null))
+            : undefined,
+        meta_description:
+          typeof b.meta_description !== "undefined"
+            ? (typeof b.meta_description === "string" ? b.meta_description.trim() : (b.meta_description ?? null))
+            : undefined,
+      };
 
-      if (!exists) {
-        if (!b.title || !b.slug || !b.content) {
-          return reply.code(400).send({ error: { message: "missing_required_translation_fields" } });
-        }
-        await upsertReferenceI18n(req.params.id, locale, {
-          title: b.title!.trim(),
-          slug: b.slug!.trim(),
-          summary: typeof b.summary === "string" ? b.summary : (b.summary ?? null),
-          content: packContent(b.content!),
-          featured_image_alt:
-            typeof b.featured_image_alt === "string" ? b.featured_image_alt.trim() : (b.featured_image_alt ?? null),
-          meta_title: typeof b.meta_title === "string" ? b.meta_title.trim() : (b.meta_title ?? null),
-          meta_description: typeof b.meta_description === "string" ? b.meta_description.trim() : (b.meta_description ?? null),
-        });
+      if (b.apply_all_locales) {
+        await upsertReferenceI18nAllLocales(req.params.id, payload);
       } else {
-        await upsertReferenceI18n(req.params.id, locale, {
-          title: typeof b.title === "string" ? b.title.trim() : undefined,
-          slug: typeof b.slug === "string" ? b.slug.trim() : undefined,
-          summary:
-            typeof b.summary !== "undefined"
-              ? (typeof b.summary === "string" ? b.summary : (b.summary ?? null))
-              : undefined,
-          content: typeof b.content === "string" ? packContent(b.content) : undefined,
-          featured_image_alt:
-            typeof b.featured_image_alt !== "undefined"
-              ? (typeof b.featured_image_alt === "string" ? b.featured_image_alt.trim() : (b.featured_image_alt ?? null))
-              : undefined,
-          meta_title:
-            typeof b.meta_title !== "undefined"
-              ? (typeof b.meta_title === "string" ? b.meta_title.trim() : (b.meta_title ?? null))
-              : undefined,
-          meta_description:
-            typeof b.meta_description !== "undefined"
-              ? (typeof b.meta_description === "string" ? b.meta_description.trim() : (b.meta_description ?? null))
-              : undefined,
-        });
+        const exists = await getReferenceI18nRow(req.params.id, locale);
+        if (!exists) {
+          if (!b.title || !b.slug || !b.content) {
+            return reply.code(400).send({ error: { message: "missing_required_translation_fields" } });
+          }
+          await upsertReferenceI18n(req.params.id, locale, {
+            title: b.title!.trim(),
+            slug: b.slug!.trim(),
+            summary: typeof b.summary === "string" ? b.summary : (b.summary ?? null),
+            content: packContent(b.content!),
+            featured_image_alt:
+              typeof b.featured_image_alt === "string" ? b.featured_image_alt.trim() : (b.featured_image_alt ?? null),
+            meta_title: typeof b.meta_title === "string" ? b.meta_title.trim() : (b.meta_title ?? null),
+            meta_description: typeof b.meta_description === "string" ? b.meta_description.trim() : (b.meta_description ?? null),
+          });
+        } else {
+          await upsertReferenceI18n(req.params.id, locale, payload);
+        }
       }
     }
 
@@ -250,10 +264,16 @@ export const createReferenceImageAdmin: RouteHandler<{ Params: { id: string }; B
     updated_at: new Date() as any,
   });
 
-  await upsertReferenceImageI18n(imageId, locale, {
+  const replicateAll = b.replicate_all_locales ?? true;
+  const payload = {
     alt: typeof b.alt === "string" ? b.alt.trim() : (b.alt ?? null),
     caption: typeof b.caption === "string" ? b.caption.trim() : (b.caption ?? null),
-  });
+  };
+  if (replicateAll) {
+    await upsertReferenceImageI18nAllLocales(imageId, payload);
+  } else {
+    await upsertReferenceImageI18n(imageId, locale, payload);
+  }
 
   const items = await listReferenceImagesMerged(req.params.id, locale, DEFAULT_LOCALE);
   return reply.code(201).send(items);
@@ -282,11 +302,16 @@ export const updateReferenceImageAdmin: RouteHandler<{ Params: { id: string; ima
     } as any);
   }
 
-  if (typeof b.alt !== "undefined" || typeof b.caption !== "undefined") {
-    await upsertReferenceImageI18n(req.params.imageId, locale, {
+  if (typeof b.alt !== "undefined" || typeof b.caption !== "undefined" || b.apply_all_locales) {
+    const payload = {
       alt: typeof b.alt !== "undefined" ? (typeof b.alt === "string" ? b.alt.trim() : (b.alt ?? null)) : undefined,
       caption: typeof b.caption !== "undefined" ? (typeof b.caption === "string" ? b.caption.trim() : (b.caption ?? null)) : undefined,
-    });
+    };
+    if (b.apply_all_locales) {
+      await upsertReferenceImageI18nAllLocales(req.params.imageId, payload);
+    } else {
+      await upsertReferenceImageI18n(req.params.imageId, locale, payload);
+    }
   }
 
   const items = await listReferenceImagesMerged(req.params.id, locale, DEFAULT_LOCALE);

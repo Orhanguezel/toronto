@@ -9,6 +9,11 @@ export const tags = [
   "References",
   "Auth",
   "Users",
+  "site_settings",
+  "reference_images","references", 
+  "references",
+  "storage_folders",
+  "storage_assets",
 ] as const;
 
 export type ApiTag = typeof tags[number];

@@ -1,16 +1,25 @@
 'use client';
 
-import {
-  useReferencesList,
-  useCreateReference,
-  useUpdateReference,
-  useRemoveReference,
-} from '@/integrations/endpoints/admin/references.endpoints';
-import { useState } from 'react';
+import * as React from 'react';
 import styled from 'styled-components';
-import { Button } from '@/shared/ui/buttons/Button';
 import { toast } from 'sonner';
-import { revalidateTags } from '@/lib/revalidate';
+import { Button } from '@/shared/ui/buttons/Button';
+import {
+  useListReferencesAdminQuery,
+  useUpdateReferenceAdminMutation,
+  useRemoveReferenceAdminMutation,
+} from '@/integrations/endpoints/admin/references_admin.endpoints';
+import ReferenceFormPage from '@/features/admin/references/FormPage';
+import ReferenceDetailPage from '@/features/admin/references/DetailPage';
+
+type View = 'list' | 'create' | 'edit' | 'detail';
+
+const TopBar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+`;
 
 const Table = styled.table`
   width: 100%;
@@ -23,7 +32,6 @@ const Table = styled.table`
     background: ${({ theme }) => theme.colors.tableHeader};
     font-weight: ${({ theme }) => theme.fontWeights.medium};
   }
-
   tbody td {
     padding: 10px;
     border-bottom: 1px solid rgba(255,255,255,.08);
@@ -31,130 +39,165 @@ const Table = styled.table`
   }
 `;
 
-const Row = styled.div`
-  display: grid;
-  gap: 10px;
-  max-width: 920px;
-  grid-template-columns: repeat(5, minmax(140px, 1fr));
-  align-items: center;
-`;
-
-const Input = styled.input`
-  padding: 10px 12px;
-  border-radius: ${({ theme }) => theme.radii.lg};
-  border: 1px solid ${({ theme }) => theme.inputs.border};
-  background: ${({ theme }) => theme.inputs.background};
-  color: ${({ theme }) => theme.inputs.text};
-  ::placeholder { color: ${({ theme }) => theme.inputs.placeholder || theme.colors.placeholder}; }
-  transition: border ${({ theme }) => theme.transition.fast}, background ${({ theme }) => theme.transition.fast}, box-shadow ${({ theme }) => theme.transition.fast};
-  &:focus {
-    outline: none;
-    border-color: ${({ theme }) => theme.inputs.borderFocus};
-    background: ${({ theme }) => theme.colors.inputBackgroundFocus};
-    box-shadow: ${({ theme }) => theme.colors.shadowHighlight};
-  }
-`;
-
 export default function ReferencesAdminPage() {
-  const { data } = useReferencesList({});
-  const [createRef, { isLoading: creating }] = useCreateReference();
-  const [updateRef, { isLoading: updating }] = useUpdateReference();
-  const [removeRef, { isLoading: removing }] = useRemoveReference();
+  const [view, setView] = React.useState<View>('list');
+  const [currentId, setCurrentId] = React.useState<string | null>(null);
 
-  const [form, setForm] = useState({ name: '', logo_url: '', url: '', order: '' as any });
+  const { data, refetch, isLoading } = useListReferencesAdminQuery({});
+  const [updateRef, { isLoading: updating }] = useUpdateReferenceAdminMutation();
+  const [removeRef, { isLoading: removing }] = useRemoveReferenceAdminMutation();
 
-  const submit = async () => {
-    try {
-      const orderNum = form.order === '' ? 0 : Number(form.order);
-      await createRef({ ...form, order: Number.isFinite(orderNum) ? orderNum : 0 }).unwrap();
-      toast.success('Eklendi');
-      setForm({ name: '', logo_url: '', url: '', order: '' as any });
-      await revalidateTags(['References', 'references']);
-    } catch {
-      toast.error('Kaydedilemedi');
-    }
+  const backToList = async () => {
+    setView('list');
+    setCurrentId(null);
+    await refetch();
   };
 
   const bumpOrder = async (id: string, current?: number) => {
     try {
-      await updateRef({ id, order: (current || 0) + 1 }).unwrap();
-      toast.success('Güncellendi');
-      await revalidateTags(['References', 'references']);
+      await updateRef({ id, body: { display_order: (current || 0) + 1 } }).unwrap();
+      toast.success('Sıra +1');
+      await refetch();
     } catch {
       toast.error('Güncellenemedi');
     }
   };
 
-  const remove = async (id: string) => {
+  const onDelete = async (id: string) => {
+    if (!confirm('Silinsin mi?')) return;
     try {
       await removeRef({ id }).unwrap();
       toast.success('Silindi');
-      await revalidateTags(['References', 'references']);
+      await refetch();
     } catch {
       toast.error('Silinemedi');
     }
   };
 
-  const items = (data || []).slice().sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+  if (view === 'create') {
+    return (
+      <ReferenceFormPage
+        onSaved={(id) => {
+          setCurrentId(id);
+          setView('detail');
+        }}
+      />
+    );
+  }
+
+  if (view === 'edit' && currentId) {
+    return <ReferenceFormPage id={currentId} onSaved={backToList} />;
+  }
+
+  if (view === 'detail' && currentId) {
+    return (
+      <div>
+        <TopBar>
+          <Button variant="ghost" onClick={backToList}>← Listeye dön</Button>
+          <Button onClick={() => setView('edit')}>Düzenle</Button>
+        </TopBar>
+        <ReferenceDetailPage id={currentId} />
+      </div>
+    );
+  }
+
+  // ---- LIST VIEW ----
+  // data -> { items, total } ya da direkt dizi olabilir; ikisine de güvenli davran.
+  const list = React.useMemo(() => {
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray((data as any).items)) return (data as any).items as any[];
+    return [] as any[];
+  }, [data]);
+
+  const items = React.useMemo(
+    () =>
+      list.slice().sort(
+        (a: any, b: any) => (a.display_order ?? 0) - (b.display_order ?? 0)
+      ),
+    [list]
+  );
 
   return (
     <div>
-      <h1>References</h1>
+      <TopBar>
+        <h1 style={{ marginRight: 'auto' }}>References</h1>
+        <Button onClick={() => setView('create')}>Yeni Referans</Button>
+      </TopBar>
 
-      <Row>
-        <Input
-          placeholder="Name"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-        />
-        <Input
-          placeholder="Logo URL"
-          value={form.logo_url}
-          onChange={(e) => setForm({ ...form, logo_url: e.target.value })}
-        />
-        <Input
-          placeholder="Link (opsiyonel)"
-          value={form.url}
-          onChange={(e) => setForm({ ...form, url: e.target.value })}
-        />
-        <Input
-          placeholder="Order"
-          inputMode="numeric"
-          value={String(form.order)}
-          onChange={(e) => setForm({ ...form, order: e.target.value as any })}
-        />
-        <Button onClick={submit} disabled={creating}>Ekle</Button>
-      </Row>
-
-      <div style={{ height: 16 }} />
-
-      <Table>
-        <thead>
-          <tr>
-            <th>Logo</th>
-            <th>Ad</th>
-            <th>URL</th>
-            <th>Sıra</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((x: any) => (
-            <tr key={x.id}>
-              <td style={{ width: 120 }}>
-                {x.logo_url ? <img src={x.logo_url} alt={x.name || ''} height={28} /> : <span style={{ opacity: .6 }}>—</span>}
-              </td>
-              <td>{x.name}</td>
-              <td style={{ maxWidth: 360, overflowWrap: 'anywhere' }}>{x.url || <span style={{ opacity: .6 }}>—</span>}</td>
-              <td style={{ width: 90 }}>{x.order ?? 0}</td>
-              <td style={{ display: 'flex', gap: 8 }}>
-                <Button variant="ghost" onClick={() => bumpOrder(x.id, x.order)} disabled={updating}>+order</Button>
-                <Button variant="danger" onClick={() => remove(x.id)} disabled={removing}>Sil</Button>
-              </td>
+      {isLoading ? (
+        <div>Yükleniyor…</div>
+      ) : (
+        <Table>
+          <thead>
+            <tr>
+              <th>Kapak</th>
+              <th>Başlık</th>
+              <th>Slug</th>
+              <th>URL</th>
+              <th>Published</th>
+              <th>Sıra</th>
+              <th style={{ width: 280 }}></th>
             </tr>
-          ))}
-        </tbody>
-      </Table>
+          </thead>
+          <tbody>
+            {items.map((x: any) => (
+              <tr key={x.id}>
+                <td style={{ width: 120 }}>
+                  {x.featured_image_url_resolved ? (
+                    <img
+                      src={x.featured_image_url_resolved}
+                      alt={x.title || ''}
+                      height={28}
+                    />
+                  ) : (
+                    <span style={{ opacity: 0.6 }}>—</span>
+                  )}
+                </td>
+                <td>{x.title || '—'}</td>
+                <td>{x.slug || '—'}</td>
+                <td style={{ maxWidth: 360, overflowWrap: 'anywhere' }}>
+                  {x.website_url || <span style={{ opacity: 0.6 }}>—</span>}
+                </td>
+                <td>{x.is_published ? 'Yes' : 'No'}</td>
+                <td style={{ width: 70 }}>{x.display_order ?? 0}</td>
+                <td style={{ display: 'flex', gap: 8 }}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => bumpOrder(x.id, x.display_order)}
+                    disabled={updating}
+                  >
+                    +order
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setCurrentId(x.id);
+                      setView('edit');
+                    }}
+                  >
+                    Düzenle
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setCurrentId(x.id);
+                      setView('detail');
+                    }}
+                  >
+                    Galeri
+                  </Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => onDelete(x.id)}
+                    disabled={removing}
+                  >
+                    Sil
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
     </div>
   );
 }

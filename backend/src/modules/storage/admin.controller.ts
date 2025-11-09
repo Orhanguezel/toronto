@@ -1,9 +1,9 @@
 import type { RouteHandler } from "fastify";
 import { and, asc, desc, eq, like, sql as dsql } from "drizzle-orm";
 import { alias } from "drizzle-orm/mysql-core";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
 import { db } from "@/db/client";
-import { DEFAULT_LOCALE } from "@/core/i18n";
+import { LOCALES, DEFAULT_LOCALE } from "@/core/i18n";
 import {
   storageAssets,
   storageAssetsI18n,
@@ -46,7 +46,7 @@ async function getAssetById(id: string) {
   return rows[0] ?? null;
 }
 
-/** i18n upsert helper (tek locale) — handler çağrısı yok, pure */
+/** i18n upsert helper (tek locale) — pure */
 async function upsertAssetI18n(
   assetId: string,
   locale: string,
@@ -73,6 +73,17 @@ async function upsertAssetI18n(
 
   if (Object.keys(setObj).length === 1) return;
   await db.insert(storageAssetsI18n).values(insertVals).onDuplicateKeyUpdate({ set: setObj });
+}
+
+/** Aynı i18n içeriğini tüm dillere yaz */
+async function upsertAssetI18nAllLocales(
+  assetId: string,
+  data: Partial<Pick<NewStorageAssetI18n, "title" | "alt" | "caption" | "description">>,
+  locales: readonly string[] = LOCALES
+) {
+  for (const l of locales) {
+    await upsertAssetI18n(assetId, l, data);
+  }
 }
 
 /* ------------------------------- merged select ------------------------------ */
@@ -136,7 +147,7 @@ function baseSelect(i18nReq: any, i18nDef: any) {
   };
 }
 
-/** PURE: merged asset seçimi — handler’lar bunu kullanır */
+/** PURE: merged asset seçimi */
 async function selectMergedAsset(id: string, locale: string, defLocale: string) {
   const iReq = alias(storageAssetsI18n, "sai_req");
   const iDef = alias(storageAssetsI18n, "sai_def");
@@ -160,7 +171,7 @@ export const adminListAssets: RouteHandler<{ Querystring: unknown }> = async (re
     return reply.code(400).send({ error: { message: "invalid_query", issues: parsed.error.flatten() } });
   }
   const q = parsed.data;
-  const locale = (req as any).locale;
+  const locale = (req as any).locale ?? DEFAULT_LOCALE;
   const def = DEFAULT_LOCALE;
 
   const iReq = alias(storageAssetsI18n, "sai_req");
@@ -214,7 +225,7 @@ export const adminGetAsset: RouteHandler<{ Params: { id: string } }> = async (re
 };
 
 export const adminGetAssetMerged: RouteHandler<{ Params: { id: string } }> = async (req, reply) => {
-  const locale = (req as any).locale;
+  const locale = (req as any).locale ?? DEFAULT_LOCALE;
   const def = DEFAULT_LOCALE;
   const row = await selectMergedAsset(req.params.id, locale, def);
   if (!row) return reply.code(404).send({ error: { message: "not_found" } });
@@ -275,18 +286,31 @@ export const adminCreateAsset: RouteHandler = async (req, reply) => {
   });
 
   // Opsiyonel i18n alanları
-  const locale = s("locale") || (req as any).locale;
+  const locale = s("locale") || (req as any).locale || DEFAULT_LOCALE;
   const title = s("title");
   const alt = s("alt");
   const caption = s("caption");
   const description = s("description");
-  if (locale && (title || alt || caption || description)) {
-    await upsertAssetI18n(id, locale, {
-      title: typeof title === "string" ? title.trim() : undefined,
-      alt: typeof alt === "string" ? alt.trim() : undefined,
-      caption: typeof caption === "string" ? caption.trim() : undefined,
-      description: typeof description === "string" ? description.trim() : undefined,
-    });
+
+  // create sırasında tüm dillere çoğaltma (default: true)
+  const replicateAllRaw = s("replicate_all_locales");
+  const replicateAll =
+    typeof replicateAllRaw === "string"
+      ? ["1", "true", "on", "yes"].includes(replicateAllRaw.toLowerCase())
+      : true;
+
+  if (title || alt || caption || description) {
+    const payload = {
+      title: title?.trim(),
+      alt: alt?.trim(),
+      caption: caption?.trim(),
+      description: description?.trim(),
+    };
+    if (replicateAll) {
+      await upsertAssetI18nAllLocales(id, payload);
+    } else {
+      await upsertAssetI18n(id, locale, payload);
+    }
   }
 
   return reply.code(201).send(await getAssetById(id));
@@ -352,15 +376,24 @@ export const adminPatchAssetI18n: RouteHandler<{ Params: { id: string }; Body: P
   const cur = await getAssetById(req.params.id);
   if (!cur) return reply.code(404).send({ error: { message: "not_found" } });
 
-  const locale = b.locale ?? (req as any).locale;
-  await upsertAssetI18n(req.params.id, locale, {
-    title: typeof b.title !== "undefined" ? (b.title ?? null) : undefined,
-    alt: typeof b.alt !== "undefined" ? (b.alt ?? null) : undefined,
-    caption: typeof b.caption !== "undefined" ? (b.caption ?? null) : undefined,
-    description: typeof b.description !== "undefined" ? (b.description ?? null) : undefined,
-  });
+  const locale = b.locale ?? (req as any).locale ?? DEFAULT_LOCALE;
 
-  // ❌ handler çağırma yok → ✅ pure helper ile merged dön
+  if (b.apply_all_locales) {
+    await upsertAssetI18nAllLocales(req.params.id, {
+      title: typeof b.title !== "undefined" ? (b.title ?? null) : undefined,
+      alt: typeof b.alt !== "undefined" ? (b.alt ?? null) : undefined,
+      caption: typeof b.caption !== "undefined" ? (b.caption ?? null) : undefined,
+      description: typeof b.description !== "undefined" ? (b.description ?? null) : undefined,
+    });
+  } else {
+    await upsertAssetI18n(req.params.id, locale, {
+      title: typeof b.title !== "undefined" ? (b.title ?? null) : undefined,
+      alt: typeof b.alt !== "undefined" ? (b.alt ?? null) : undefined,
+      caption: typeof b.caption !== "undefined" ? (b.caption ?? null) : undefined,
+      description: typeof b.description !== "undefined" ? (b.description ?? null) : undefined,
+    });
+  }
+
   const def = DEFAULT_LOCALE;
   const merged = await selectMergedAsset(req.params.id, locale, def);
   if (!merged) return reply.code(404).send({ error: { message: "not_found" } });
