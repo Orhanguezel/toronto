@@ -1,3 +1,6 @@
+// ==============================
+// src/app/[locale]/services/page.tsx
+// ==============================
 import type { Metadata } from "next";
 import LandingClient from "@/landing/LandingClient";
 import { canonicalFor, languagesMap } from "@/shared/seo/alternates";
@@ -7,8 +10,12 @@ type Locale = "tr" | "en" | "de";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export function generateMetadata({ params }: { params: { locale: Locale } }): Metadata {
-  const { locale } = params;
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: Locale }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
   return {
     title: "Hizmetlerimiz",
     description: "Toronto – web geliştirme, tasarım ve SEO/perf hizmetleri",
@@ -16,7 +23,11 @@ export function generateMetadata({ params }: { params: { locale: Locale } }): Me
   };
 }
 
-export default function Page({ params }: { params: { locale: Locale } }) {
-  const { locale } = params;
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ locale: Locale }>;
+}) {
+  const { locale } = await params;
   return <LandingClient locale={locale} initialSection="services" />;
 }

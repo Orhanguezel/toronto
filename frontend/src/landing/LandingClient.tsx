@@ -21,7 +21,7 @@ import ReferencesSection from "@/sections/ReferencesSection";
 import ContactSection from "@/sections/ContactSection";
 
 type Locale = "tr" | "en" | "de";
-type Props = { locale: Locale; initialSection?: string };
+type Props = { locale: Locale; initialSection?: string; initialHash?: string };
 
 // Login paneli client-only
 const LoginPanel = dynamic(() => import("@/features/auth/LoginPanel"), { ssr: false });
@@ -52,7 +52,7 @@ function toRoute(href: string): Route {
   return href as Route;
 }
 
-export default function LandingClient({ locale, initialSection }: Props) {
+export default function LandingClient({ locale, initialSection, initialHash }: Props) {
   const pathname = usePathname();
   const sp = useSearchParams();
   const router = useRouter();
@@ -63,7 +63,7 @@ export default function LandingClient({ locale, initialSection }: Props) {
 
   // İlk yük: server'dan gelen section'a kaydır
   useEffect(() => {
-    const id = (initialSection || "").trim();
+    const id = (initialHash || initialSection || "").trim();
     if (!id) return;
     let r1 = 0, r2 = 0;
     r1 = requestAnimationFrame(() => {
@@ -74,7 +74,7 @@ export default function LandingClient({ locale, initialSection }: Props) {
       cancelAnimationFrame(r2);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialHash, initialSection]);
 
   // Path değişince kaydır
   useEffect(() => {
