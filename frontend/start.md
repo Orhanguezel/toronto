@@ -8,6 +8,11 @@ bun run test:intl
 bun run test:ui
 
 
+bun run build
+pm2 start toronto-frontend
+pm2 save
+
+
 
 ```sh
 pm2 flush

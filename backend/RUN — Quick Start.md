@@ -5,6 +5,8 @@ mysql -u root -p
 
 ADMIN_EMAIL="admin@site.com" ADMIN_PASSWORD="SüperGizli!" bun run db:seed
 
+ALLOW_DROP=true bun run db:seed
+
 
 cd /var/www/productsPark/backend
 
