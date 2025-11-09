@@ -1,11 +1,18 @@
-// src/features/home/Hero.tsx
 "use client";
 
-import React from "react";
+import Link from "next/link";
+import type { Route } from "next";
+import { usePathname } from "next/navigation";
+import { scrollToSection } from "@/shared/scroll/scroll";
 import styled from "styled-components";
 import WhatsAppButton from "@/shared/ui/actions/WhatsAppButton";
 
-type HeroProps = { locale: "tr" | "en" | "de"; whatsapp?: string };
+type HeroProps = {
+  locale: "tr" | "en" | "de";
+  whatsapp?: string;
+  /** Bu component üst seviye SECTION olacak */
+  id?: string; // ← dışarıdan id alalım (default: "hero")
+};
 
 const COPY: Record<string, { title: string; sub: string; cta: string }> = {
   tr: { title: "Toronto ile markanızı", sub: "Satılık projeler, yaratıcı hizmetler ve yüksek etkili reklam çözümleri.", cta: "Bilgi Alın" },
@@ -13,6 +20,62 @@ const COPY: Record<string, { title: string; sub: string; cta: string }> = {
   de: { title: "Wachsen Sie mit Toronto", sub: "Verkaufsprojekte, kreative Services und wirkungsvolle Werbelösungen.", cta: "Mehr erfahren" },
 };
 
+export default function Hero({ locale, whatsapp, id = "hero" }: HeroProps) {
+  const t = COPY[locale] ?? COPY.tr;
+  const pathname = usePathname();
+
+  const hrefStr = `/${locale}/projects`;
+  const href = hrefStr as Route;
+
+  const onClick: React.MouseEventHandler<HTMLAnchorElement> = (e) => {
+    if (pathname === hrefStr) {
+      e.preventDefault();
+      scrollToSection("projects");
+    }
+  };
+
+  return (
+    <Wrap
+      id={id}
+      data-section={id}
+      aria-label="Hero"
+      role="region"
+    >
+      <Stage>
+        <BlurBlue />
+        <BlurRoyal />
+
+        <TextBlock>
+          {/* Tekil sayfa başlığı */}
+          <Title id="hero-title">{t.title}</Title>
+          <Sub aria-describedby="hero-title">{t.sub}</Sub>
+
+          <CtaStyles>
+            <Link
+              href={href}
+              scroll={false}
+              onClick={onClick}
+              aria-label={t.cta}
+              className="cta"
+            >
+              <span className="cta-fill">{t.cta}</span>
+            </Link>
+          </CtaStyles>
+        </TextBlock>
+
+        <WhatsAppFab>
+          <WhatsAppButton
+            number={whatsapp}
+            label="WhatsApp ile sohbet et"
+            style={{ width: "var(--wa-size)", height: "var(--wa-size)" }}
+          />
+        </WhatsAppFab>
+      </Stage>
+    </Wrap>
+  );
+}
+
+/* ================= styles ================= */
 const Wrap = styled.section`
   position: relative;
   width: 100%;
@@ -86,78 +149,36 @@ const Sub = styled.p`
   color: #fff; opacity: .95;
 `;
 
-const CtaShell = styled.a`
-  position: relative; display: inline-block;
-  width: clamp(120px, 10.7vw, 137px);
-  height: clamp(44px, 4.5vw, 57px);
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: clamp(8px, 1vw, 12px);
-  text-decoration: none;
-  transition: transform .15s ease, box-shadow .15s ease;
-  &:hover { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(0,0,0,.22); }
+const CtaStyles = styled.div`
+  .cta{
+    position: relative; display: inline-block;
+    width: clamp(120px, 10.7vw, 137px);
+    height: clamp(44px, 4.5vw, 57px);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: clamp(8px, 1vw, 12px);
+    text-decoration: none;
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .cta:hover{ transform: translateY(-1px); box-shadow: 0 10px 28px rgba(0,0,0,.22); }
+
+  .cta-fill{
+    position: absolute; left: 50%; transform: translateX(-50%);
+    top: clamp(6px, .6vw, 8px);
+    width: clamp(104px, 9.7vw, 124px);
+    height: clamp(34px, 3.3vw, 41px);
+    border-radius: clamp(6px, .8vw, 8px);
+    background: #fff; color: #000;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Inter', ui-sans-serif, system-ui;
+    font-weight: 500; font-size: clamp(12px, 1.2vw, 15px);
+  }
 `;
 
-const CtaFill = styled.span`
-  position: absolute; left: 50%; transform: translateX(-50%);
-  top: clamp(6px, .6vw, 8px);
-  width: clamp(104px, 9.7vw, 124px);
-  height: clamp(34px, 3.3vw, 41px);
-  border-radius: clamp(6px, .8vw, 8px);
-  background: #fff; color: #000;
-  display: flex; align-items: center; justify-content: center;
-  font-family: 'Inter', ui-sans-serif, system-ui;
-  font-weight: 500; font-size: clamp(12px, 1.2vw, 15px);
-`;
-
-/* ===== WhatsApp FAB =====
-   Tasarım: 1280x1401 sahnede X=1114, Y=661  => X% = 87.03125, Y% = 47.1806
-   Y (üstten) oranını koruyoruz; ancak aşırı büyük ekranlarda ilk ekranda
-   kalması için top değerine bir tavan koyuyoruz (100vh - navbar - yarı-buton - margin). */
 const WhatsAppFab = styled.div`
   position: absolute;
-
-  /* Buton boyutunu değişkene alalım (CTA ile aynı ölçek mantığı) */
   --wa-size: clamp(44px, 6vw, 84px);
-
-  /* X: tasarım yüzdesi; kenar güvenliği için clamp */
   left: clamp(72%, 87.03125%, 92%);
-
-  /* Y (merkez): tasarım yüzdesi ile orantılı,
-     fakat ilk ekranda görünür kalması için viewport tavanı:
-     centerY <= 100vh - navbar - halfSize - 16px */
-  top: min(
-    47.1806%,
-    calc(100vh - var(--navbar-h, 96px) - calc(var(--wa-size) * 0.5) - 16px)
-  );
-
+  top: min(47.1806%, calc(100vh - var(--navbar-h, 96px) - calc(var(--wa-size) * 0.5) - 16px));
   transform: translate(-50%, -50%);
   z-index: 3;
 `;
-
-export default function Hero({ locale, whatsapp }: HeroProps) {
-  const t = COPY[locale] ?? COPY.tr;
-
-  return (
-    <Wrap>
-      <Stage>
-        <BlurBlue />
-        <BlurRoyal />
-        <TextBlock>
-          <Title>{t.title}</Title>
-          <Sub>{t.sub}</Sub>
-          <CtaShell href="#projects" aria-label={t.cta}>
-            <CtaFill>{t.cta}</CtaFill>
-          </CtaShell>
-        </TextBlock>
-
-        <WhatsAppFab>
-          <WhatsAppButton
-            number={whatsapp}
-            label="WhatsApp ile sohbet et"
-            style={{ width: 'var(--wa-size)', height: 'var(--wa-size)' }}
-          />
-        </WhatsAppFab>
-      </Stage>
-    </Wrap>
-  );
-}

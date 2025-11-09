@@ -9,6 +9,7 @@ import { getSiteSettings } from "@/lib/api/public";
 import Speculation from "@/shared/perf/SpeculationRules";
 
 export function generateStaticParams() {
+  // Tip: Next validator için burada 'string' yeterli, build zamanı zaten sabitler.
   return SUPPORTED_LOCALES.map((l: string) => ({ locale: l }));
 }
 
@@ -17,14 +18,20 @@ export const metadata: Metadata = {
   description: "Toronto portfolio site",
 };
 
+// ✅ Dış imzada GENİŞ tut: string
 export default async function LocaleLayout({
   params,
   children,
 }: {
-  params: Promise<{ locale: "tr" | "en" | "de" }>;
+  params: Promise<{ locale: string }>;
   children: React.ReactNode;
 }) {
-  const { locale } = await params;
+  const { locale: raw } = await params;
+
+  // İçeride daralt
+  const isSupported = (v: unknown): v is "tr" | "en" | "de" =>
+    typeof v === "string" && (SUPPORTED_LOCALES as readonly string[]).includes(v);
+  const locale: "tr" | "en" | "de" = isSupported(raw) ? raw : "en";
 
   const settings = await getSiteSettings(locale);
   const c = settings?.contact_info ?? {};
@@ -42,25 +49,20 @@ export default async function LocaleLayout({
     sameAs: Object.values(socials).filter(Boolean),
   };
 
-  // ✅ Next 16'da headers() → Promise
-  const h = await headers();
+  const h = await headers(); // senin ortamında Promise => await doğru
   const ua = h.get("user-agent") || "";
   const device: "m" | "d" = /mobile/i.test(ua) ? "m" : "d";
   const saveData = h.get("save-data") === "on";
 
   return (
     <>
-      {/* Navbar normal akışta, ama her zaman çocukların ÜSTÜNDE */}
       <div style={{ position: "relative", zIndex: 1000 }}>
         <Navbar locale={locale} />
       </div>
 
       {!saveData && <Speculation device={device} lang={locale} />}
 
-      {/* Artık spacer YOK; minHeight da tam viewport olabilir */}
-      <div style={{ minHeight: "100dvh" }}>
-        {children}
-      </div>
+      <div style={{ minHeight: "100dvh" }}>{children}</div>
 
       <Footer
         contact={{ phones: c.phones, email: c.email, address: c.address }}

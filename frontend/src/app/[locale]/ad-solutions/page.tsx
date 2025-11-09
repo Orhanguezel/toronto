@@ -1,37 +1,21 @@
 // src/app/[locale]/ad-solutions/page.tsx
-import Container from '@/shared/ui/common/Container';
-import { H1, Lead, Prose } from '@/shared/ui/typography';
-import { Section } from '@/shared/ui/sections/Section';
-import { getAdSolutions } from '@/lib/api/public';
+import type { Metadata } from "next";
+import LandingClient from "@/landing/LandingClient";
+import { canonicalFor, languagesMap } from "@/shared/seo/alternates";
 
 export const revalidate = 600;
 
-export default async function AdSolutionsPage({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}) {
-  // Next 16: params Promise → unwrap
+export async function generateMetadata({ params }: { params: Promise<{ locale: "tr"|"en"|"de" }> }): Promise<Metadata> {
   const { locale } = await params;
-
-  // API çökse bile sayfa render etmeye devam etsin
-  const items = (await getAdSolutions(locale).catch(() => [])) ?? [];
-
-  return (
-    <main>
-      <Section>
-        <Container>
-          <H1>Reklam Çözümleri</H1>
-          <Lead>Ölçülebilir kampanyalar, görünür sonuçlar.</Lead>
-
-          {items.map((a) => (
-            <Prose key={a.slug}>
-              <h3>{a.title}</h3>
-              {a.body ? <div dangerouslySetInnerHTML={{ __html: a.body }} /> : null}
-            </Prose>
-          ))}
-        </Container>
-      </Section>
-    </main>
-  );
+  return {
+    title: "Reklam Çözümleri",
+    description: "Ölçülebilir kampanyalar, görünür sonuçlar.",
+    alternates: { canonical: canonicalFor(locale, "/ad-solutions"), languages: languagesMap("/ad-solutions") },
+  };
 }
+
+export default async function Page({ params }: { params: Promise<{ locale: "tr"|"en"|"de" }> }) {
+  const { locale } = await params;
+  return <LandingClient locale={locale} initialSection="ad-solutions" />;
+}
+

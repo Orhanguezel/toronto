@@ -1,8 +1,9 @@
+// src/features/auth/LoginPanel.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import styled from "styled-components";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { Button } from "@/shared/ui/buttons/Button";
 import {
@@ -12,8 +13,110 @@ import {
   useStatusQuery,
 } from "@/integrations/endpoints/public/auth.entpoints";
 
-/* ===== Themed UI ===== */
+const ADMIN: Route = "/admin" as Route;
 
+/* ===== Component ===== */
+export default function LoginPanel({
+  locale,
+  nextDest, // artık kullanılmıyor; API uyumu için bırakıldı
+}: {
+  locale: string;
+  nextDest?: string;
+}) {
+  const router = useRouter();
+
+  const { data: status } = useStatusQuery();
+  const [passwordLogin, { isLoading: loginBusy, error: loginErr }] = usePasswordLoginMutation();
+  const [signup, { isLoading: regBusy, error: regErr }] = useSignupMutation();
+  const [googleStart, { isLoading: googleBusy }] = useGoogleStartMutation();
+
+  useEffect(() => {
+    if (status?.authenticated) router.replace(ADMIN);
+  }, [status?.authenticated, router]);
+
+  // Forms
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+
+  const busy = loginBusy || regBusy || googleBusy;
+
+  const onSubmitLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await passwordLogin({ grant_type: "password", email, password }).unwrap();
+      router.replace(ADMIN);
+    } catch {}
+  };
+
+  const onSubmitRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await signup({ email, password, full_name: fullName || undefined, phone: phone || undefined }).unwrap();
+      router.replace(ADMIN);
+    } catch {}
+  };
+
+  const onGoogleClick = async () => {
+    try {
+      const res = await googleStart({ redirectTo: "/admin" }).unwrap();
+      if (res?.url) window.location.href = res.url;
+    } catch {}
+  };
+
+  return (
+    <Card>
+      <Title>Yönetim Girişi</Title>
+
+      <Tabs>
+        <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")} disabled={busy}>Giriş Yap</button>
+        <button type="button" className={mode === "register" ? "active" : ""} onClick={() => setMode("register")} disabled={busy}>Kayıt Ol</button>
+      </Tabs>
+
+      {mode === "login" ? (
+        <form onSubmit={onSubmitLogin}>
+          <Field><span>E-posta</span>
+            <Input value={email} onChange={(e)=>setEmail(e.target.value)} autoComplete="email" inputMode="email" disabled={busy} placeholder="ornek@site.com" required />
+          </Field>
+          <Field><span>Şifre</span>
+            <Input type="password" value={password} onChange={(e)=>setPassword(e.target.value)} autoComplete="current-password" disabled={busy} placeholder="••••••••" required />
+          </Field>
+          {!!loginErr && <SmallError>Giriş başarısız. E-posta/şifreyi kontrol edin.</SmallError>}
+          <div style={{ height: 12 }} />
+          <Row>
+            <Button type="submit" disabled={busy}>Giriş</Button>
+            <SecondaryBtn type="button" onClick={onGoogleClick} disabled={busy}>Google ile devam et</SecondaryBtn>
+          </Row>
+        </form>
+      ) : (
+        <form onSubmit={onSubmitRegister}>
+          <Field><span>Ad Soyad (ops.)</span>
+            <Input value={fullName} onChange={(e)=>setFullName(e.target.value)} disabled={busy} placeholder="Ad Soyad" />
+          </Field>
+          <Field><span>Telefon (ops.)</span>
+            <Input value={phone} onChange={(e)=>setPhone(e.target.value)} disabled={busy} placeholder="+49 ..." />
+          </Field>
+          <Field><span>E-posta</span>
+            <Input value={email} onChange={(e)=>setEmail(e.target.value)} autoComplete="email" inputMode="email" disabled={busy} placeholder="ornek@site.com" required />
+          </Field>
+          <Field><span>Şifre</span>
+            <Input type="password" value={password} onChange={(e)=>setPassword(e.target.value)} autoComplete="new-password" disabled={busy} placeholder="en az 6 karakter" required />
+          </Field>
+          {!!regErr && <SmallError>Kayıt başarısız. E-posta kullanımda olabilir.</SmallError>}
+          <div style={{ height: 12 }} />
+          <Row>
+            <Button type="submit" disabled={busy}>Kayıt Ol</Button>
+            <SecondaryBtn type="button" onClick={onGoogleClick} disabled={busy}>Google ile giriş</SecondaryBtn>
+          </Row>
+        </form>
+      )}
+    </Card>
+  );
+}
+
+/* ===== Themed UI ===== */
 const Card = styled.div`
   width: 100%;
   max-width: 440px;
@@ -96,7 +199,6 @@ const SmallError = styled.div`
   font-size: ${({ theme }) => theme.fontSizes.sm};
 `;
 
-/* Button bileşeninin type union’una dokunmadan ikincil stil: */
 const SecondaryBtn = styled(Button)`
   background: ${({ theme }) => theme.buttons.secondary.background};
   color: ${({ theme }) => theme.buttons.secondary.text};
@@ -106,180 +208,3 @@ const SecondaryBtn = styled(Button)`
     color: ${({ theme }) => theme.buttons.secondary.textHover};
   }
 `;
-
-/* ===== Component ===== */
-
-export default function LoginPanel({ locale }: { locale: string }) {
-  const router = useRouter();
-  const sp = useSearchParams();
-  const [mode, setMode] = useState<"login" | "register">("login");
-
-  // Typed Routes (Route) ile uyumlu next param’ı
-  const nextUrl = useMemo<Route>(() => {
-    const n = sp?.get("next") || "";
-    const ok = /^\/[a-z0-9/_\-?=&.%]+$/i.test(n);
-    return (ok ? n : "/admin") as Route;
-  }, [sp]);
-
-  // RTK hooks
-  const { data: status } = useStatusQuery();
-  const [passwordLogin, { isLoading: loginBusy, error: loginErr }] = usePasswordLoginMutation();
-  const [signup, { isLoading: regBusy, error: regErr }] = useSignupMutation();
-  const [googleStart, { isLoading: googleBusy }] = useGoogleStartMutation();
-
-  // Girişli ise yönlendir
-  useEffect(() => {
-    if (status?.authenticated) router.replace(nextUrl);
-  }, [status?.authenticated, nextUrl, router]);
-
-  // Forms
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  // Register extras
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-
-  const busy = loginBusy || regBusy || googleBusy;
-
-  const onSubmitLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await passwordLogin({ grant_type: "password", email, password }).unwrap();
-      router.replace(nextUrl);
-    } catch { /* error UI’da */ }
-  };
-
-  const onSubmitRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await signup({
-        email,
-        password,
-        full_name: fullName || undefined,
-        phone: phone || undefined,
-      }).unwrap();
-      router.replace(nextUrl);
-    } catch { /* error UI’da */ }
-  };
-
-  const onGoogleClick = async () => {
-    try {
-      const res = await googleStart({ redirectTo: nextUrl as unknown as string }).unwrap();
-      if (res?.url) window.location.href = res.url;
-    } catch { /* sessiz geç */ }
-  };
-
-  return (
-    <Card>
-      <Title>Yönetim Girişi</Title>
-
-      <Tabs>
-        <button
-          type="button"
-          className={mode === "login" ? "active" : ""}
-          onClick={() => setMode("login")}
-          disabled={busy}
-        >
-          Giriş Yap
-        </button>
-        <button
-          type="button"
-          className={mode === "register" ? "active" : ""}
-          onClick={() => setMode("register")}
-          disabled={busy}
-        >
-          Kayıt Ol
-        </button>
-      </Tabs>
-
-      {mode === "login" ? (
-        <form onSubmit={onSubmitLogin}>
-          <Field>
-            <span>E-posta</span>
-            <Input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              inputMode="email"
-              disabled={busy}
-              placeholder="ornek@site.com"
-              required
-            />
-          </Field>
-
-          <Field>
-            <span>Şifre</span>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              disabled={busy}
-              placeholder="••••••••"
-              required
-            />
-          </Field>
-
-          {!!loginErr && <SmallError>Giriş başarısız. E-posta/şifreyi kontrol edin.</SmallError>}
-
-          <div style={{ height: 12 }} />
-          <Row>
-            <Button type="submit" disabled={busy}>Giriş</Button>
-            <SecondaryBtn type="button" onClick={onGoogleClick} disabled={busy}>
-              Google ile devam et
-            </SecondaryBtn>
-          </Row>
-        </form>
-      ) : (
-        <form onSubmit={onSubmitRegister}>
-          <Field>
-            <span>Ad Soyad (ops.)</span>
-            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} disabled={busy} placeholder="Ad Soyad" />
-          </Field>
-
-          <Field>
-            <span>Telefon (ops.)</span>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} disabled={busy} placeholder="+49 ..." />
-          </Field>
-
-          <Field>
-            <span>E-posta</span>
-            <Input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              inputMode="email"
-              disabled={busy}
-              placeholder="ornek@site.com"
-              required
-            />
-          </Field>
-
-          <Field>
-            <span>Şifre</span>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-              disabled={busy}
-              placeholder="en az 6 karakter"
-              required
-            />
-          </Field>
-
-          {!!regErr && <SmallError>Kayıt başarısız. E-posta kullanımda olabilir.</SmallError>}
-
-          <div style={{ height: 12 }} />
-          <Row>
-            <Button type="submit" disabled={busy}>Kayıt Ol</Button>
-            <SecondaryBtn type="button" onClick={onGoogleClick} disabled={busy}>
-              Google ile giriş
-            </SecondaryBtn>
-          </Row>
-        </form>
-      )}
-    </Card>
-  );
-}

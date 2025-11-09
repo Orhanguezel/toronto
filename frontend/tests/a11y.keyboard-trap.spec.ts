@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-async function tabThrough(page, limit=150){
+type Page = import('@playwright/test').Page;
+
+async function tabThrough(page: Page, limit=150){
   const visited = new Set<string>();
   for(let i=0;i<limit;i++){
     await page.keyboard.press('Tab');

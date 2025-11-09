@@ -1,31 +1,56 @@
-import Container from '@/shared/ui/common/Container';
-import { H1, Lead } from '@/shared/ui/typography';
-import NavOffset from '@/shared/ui/layout/NavOffset';
-import LoginPanel from '@/features/auth/LoginPanel';
+import type { Metadata } from "next";
+import Container from "@/shared/ui/common/Container";
+import { H1, Lead } from "@/shared/ui/typography";
+import LoginForm from "@/features/login/LoginForm";
 
-export const revalidate = 600;
+type Locale = "tr" | "en" | "de";
 
-export default async function LoginPage({ params }: { params: Promise<{ locale: string }> }) {
+export const metadata: Metadata = {
+  title: "Giriş Yap",
+  description: "Hesabınıza giriş yapın",
+};
+
+export default async function LoginPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: Locale }>;
+  // Bazı ortamlarda Promise gelebiliyor:
+  searchParams?: { next?: string } | Promise<{ next?: string }>;
+}) {
   const { locale } = await params;
+
+  const sp =
+    searchParams && typeof (searchParams as any)?.then === "function"
+      ? await (searchParams as Promise<{ next?: string }>)
+      : ((searchParams as { next?: string } | undefined) ?? {});
+
+  const next = sp.next || `/${locale}`;
 
   return (
     <main
-      // Navbar yüksekliği + 24px boşluk, altta 64px nefes
-      style={{ paddingTop: 'calc(var(--navbar-h, 96px) + 24px)', paddingBottom: '64px' }}
+      style={{
+        minHeight: "100dvh",
+        display: "grid",
+        placeItems: "center",
+        padding: "calc(var(--navbar-h, 96px) + 24px) 0 64px",
+      }}
     >
-      {/* header yüksekliğini ölçüp --navbar-h yaz */}
-      <NavOffset />
-
-      <Container>
-        <header style={{ marginBottom: 16, textAlign: 'center' }}>
-          <H1>Yönetim Girişi</H1>
-          <Lead>Hesabınla giriş yap veya hızlıca kayıt ol.</Lead>
+      <Container style={{ width: "100%" }}>
+        <header style={{ textAlign: "center", marginBottom: 16 }}>
+          <H1>{locale === "tr" ? "Giriş Yap" : locale === "de" ? "Anmelden" : "Sign In"}</H1>
+          <Lead>
+            {locale === "tr"
+              ? "E-posta ve şifrenizle giriş yapın veya Google ile devam edin."
+              : locale === "de"
+              ? "Melden Sie sich mit E-Mail/Passwort an oder fahren Sie mit Google fort."
+              : "Sign in with email/password or continue with Google."}
+          </Lead>
         </header>
 
-        {/* Paneli ortala */}
-        <section style={{ display: 'grid', justifyItems: 'center' }}>
-          <LoginPanel locale={locale} />
-        </section>
+        <div style={{ display: "grid", justifyItems: "center" }}>
+          <LoginForm locale={locale} next={next} />
+        </div>
       </Container>
     </main>
   );

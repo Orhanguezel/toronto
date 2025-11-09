@@ -1,32 +1,20 @@
-import Container from '@/shared/ui/common/Container';
-import { H1, Lead } from '@/shared/ui/typography';
-import ContactForm from '@/features/auth/LoginPanel';
-import NavOffset from '@/shared/ui/layout/NavOffset';
+// src/app/[locale]/contact/page.tsx
+import type { Metadata } from "next";
+import LandingClient from "@/landing/LandingClient";
+import { canonicalFor, languagesMap } from "@/shared/seo/alternates";
 
 export const revalidate = 600;
 
-export default async function ContactPage({ params }: { params: Promise<{ locale: string }> }) {
+export async function generateMetadata({ params }: { params: Promise<{ locale: "tr"|"en"|"de" }> }): Promise<Metadata> {
   const { locale } = await params;
+  return {
+    title: "İletişim",
+    description: "Formu doldurun, en kısa sürede dönüş yapalım.",
+    alternates: { canonical: canonicalFor(locale, "/contact"), languages: languagesMap("/contact") },
+  };
+}
 
-  return (
-    <main
-      /* Navbar yüksekliği kadar + 24px boşluk oluştur */
-      style={{ paddingTop: 'calc(var(--navbar-h, 96px) + 24px)', paddingBottom: '64px' }}
-    >
-      {/* header yüksekliğini ölçüp --navbar-h değişkenine yaz */}
-      <NavOffset />
-
-      <Container>
-        <header style={{ marginBottom: 16, textAlign: 'center' }}>
-          <H1>İletişim</H1>
-          <Lead>Formu doldurun, en kısa sürede dönüş yapalım.</Lead>
-        </header>
-
-        {/* formu ortala */}
-        <section style={{ display: 'grid', justifyItems: 'center' }}>
-          <ContactForm locale={locale} />
-        </section>
-      </Container>
-    </main>
-  );
+export default async function Page({ params }: { params: Promise<{ locale: "tr"|"en"|"de" }> }) {
+  const { locale } = await params;
+  return <LandingClient locale={locale} initialSection="contact" />;
 }
