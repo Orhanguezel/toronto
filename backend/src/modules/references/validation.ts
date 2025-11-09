@@ -61,6 +61,9 @@ export const upsertReferenceI18nBodySchema = z.object({
   featured_image_alt: z.string().max(255).nullable().optional(),
   meta_title: z.string().max(255).nullable().optional(),
   meta_description: z.string().max(500).nullable().optional(),
+
+  /** create: aynı içeriği tüm dillere kopyala? (default: true) */
+  replicate_all_locales: z.coerce.boolean().default(true).optional(),
 });
 export type UpsertReferenceI18nBody = z.infer<typeof upsertReferenceI18nBodySchema>;
 
@@ -78,6 +81,9 @@ export const patchReferenceI18nBodySchema = z.object({
   featured_image_alt: z.string().max(255).nullable().optional(),
   meta_title: z.string().max(255).nullable().optional(),
   meta_description: z.string().max(500).nullable().optional(),
+
+  /** patch: tüm dillere uygula? (default: false) */
+  apply_all_locales: z.coerce.boolean().default(false).optional(),
 });
 export type PatchReferenceI18nBody = z.infer<typeof patchReferenceI18nBodySchema>;
 
@@ -105,10 +111,20 @@ export const upsertReferenceImageI18nBodySchema = z.object({
   locale: LOCALE_ENUM.optional(),
   alt: z.string().max(255).nullable().optional(),
   caption: z.string().max(1000).nullable().optional(),
+
+  /** create: tüm dillere çoğalt (default: true) */
+  replicate_all_locales: z.coerce.boolean().default(true).optional(),
 });
 export type UpsertReferenceImageI18nBody = z.infer<typeof upsertReferenceImageI18nBodySchema>;
 
-export const patchReferenceImageI18nBodySchema = upsertReferenceImageI18nBodySchema.partial();
+export const patchReferenceImageI18nBodySchema = z.object({
+  locale: LOCALE_ENUM.optional(),
+  alt: z.string().max(255).nullable().optional(),
+  caption: z.string().max(1000).nullable().optional(),
+
+  /** patch: tüm dillere uygula (default: false) */
+  apply_all_locales: z.coerce.boolean().default(false).optional(),
+});
 export type PatchReferenceImageI18nBody = z.infer<typeof patchReferenceImageI18nBodySchema>;
 
 /* ============== GALLERY: COMBINED ============== */

@@ -25,7 +25,9 @@ export const references = mysqlTable(
     is_featured: tinyint("is_featured").notNull().default(0),
     display_order: int("display_order").notNull().default(0),
 
+    /** Doğrudan URL (legacy/back-compat) */
     featured_image: varchar("featured_image", { length: 500 }),
+    /** Storage ilişkisi */
     featured_image_asset_id: char("featured_image_asset_id", { length: 36 }),
 
     website_url: varchar("website_url", { length: 500 }),
