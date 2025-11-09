@@ -1,4 +1,4 @@
-import "@/styles/theme-ssr.css"; // SSR'da anında base değişkenler
+import "@/styles/theme-ssr.css";
 import WebVitalsListener from "@/app/analytics/WebVitalsListener";
 import { headers, cookies } from "next/headers";
 import StyledComponentsRegistry from "@/styles/StyledComponentsRegistry";
@@ -34,15 +34,18 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Ortamında headers()/cookies() Promise => await kullanımı doğru.
   const h = await headers();
   const c = await cookies();
-  const cookieLocale = c.get("NEXT_LOCALE")?.value as Locale | undefined;
+  const cookieLocale = c.get("NEXT_LOCALE")?.value as string | undefined;
+
   const detected: Locale = isSupported(cookieLocale)
-    ? cookieLocale
+    ? (cookieLocale as Locale)
     : detectFromAcceptLanguage(h.get("accept-language"));
 
   return (
-    <html lang={detected}>
+    // ✅ Olası server/client lang farkı uyarısını bastır (özellik kaybı yok)
+    <html lang={detected} suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://res.cloudinary.com" crossOrigin="anonymous" />
       </head>

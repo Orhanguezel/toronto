@@ -1,11 +1,15 @@
 import { createGlobalStyle } from "styled-components";
 
 export const GlobalStyle = createGlobalStyle`
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark;
+  --navbar-h: 96px; }
 
   :root{
     --container-max: ${({theme})=>theme.layout.containerWidth};
     --container-padX: clamp(16px, 4vw, 32px);
+    --section-py: clamp(84px, 12vw, 180px);
+    --section-head-gap: clamp(8px, 1.8vw, 18px);
+    --section-head-mb: clamp(18px, 3.2vw, 28px);
 
     --color-title: ${({theme})=>theme.colors.title};
     --color-text: ${({theme})=>theme.colors.text};
@@ -26,7 +30,9 @@ export const GlobalStyle = createGlobalStyle`
   }
 
   *,*::before,*::after{ box-sizing:border-box; }
-  html,body{ height:100%; }
+  html,body{ height:100%; 
+  scroll-padding-top: calc(var(--navbar-h) + 24px);
+    scroll-behavior: smooth;}
 
   body{
     margin:0;

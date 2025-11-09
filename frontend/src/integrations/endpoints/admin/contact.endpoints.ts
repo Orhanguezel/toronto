@@ -1,3 +1,5 @@
+// src/integrations/endpoints/admin/contact.endpoints.ts
+
 import { baseApi } from '@/integrations/baseApi';
 export const contactAdminApi = baseApi.injectEndpoints({
   endpoints: (b)=> ({

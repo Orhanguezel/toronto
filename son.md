@@ -1,5 +1,3 @@
-tamam — “detay ormanı”ndan çıkıp projeyi **olmazsa-olmaz (MVP)** seviyesinde netleyelim. 👇
-(Part 29 açılmasa da sorun değil; aşağıdaki liste gerçek teslim kapsamını özetliyor.)
 
 # Toronto portfolyo sitesi – MVP zorunlular
 

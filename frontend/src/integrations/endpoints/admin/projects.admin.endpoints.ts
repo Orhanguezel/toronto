@@ -1,4 +1,4 @@
-// src/integrations/endpoints/projects.admin.ts
+// src/integrations/endpoints/admin/projects.admin.endpoints.ts
 
 import { baseApi } from "@/integrations/baseApi";
 import { routes } from "@/integrations/routes";

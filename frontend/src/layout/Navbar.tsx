@@ -1,226 +1,64 @@
-// src/layout/Navbar.tsx
 'use client';
 
 import React from 'react';
-import Link from 'next/link';
-import type { UrlObject } from 'url';
-import styled from 'styled-components';
+import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
 import LocaleSwitcher from '@/shared/ui/navigation/LocaleSwitcher';
 
-const BP = 887; // hamburger breakpoint
-const glassOverlay =
-  `radial-gradient(90.16% 143.01% at 15.32% 21.04%, rgba(165,239,255,.20) 0%, rgba(110,191,244,.045) 77.08%, rgba(70,144,213,0) 100%)`;
+import {
+  Bar, Row, Left, Right, Brand, LogoImg, DesktopNav, Glass,
+  NavLink, Dropdown, DropBtn, Panel, PanelLink,
+  BurgerBtn, DesktopLocale, MobileSheet, MobilePanel, MobileHeader, CloseBtn, MobileLink,
+} from './Navbar.styles';
 
-/* ================= BAR ================= */
-const Bar = styled.header`
-  position: fixed; inset: 0 0 auto 0; z-index: 4000;
-  background: transparent;
-  padding-block: clamp(10px, 2vh, 20px);
-`;
+/* ========= helpers ========= */
+const GAP = 24;
+function scrollToSection(id?: string) {
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  const navH =
+    parseInt(getComputedStyle(document.documentElement).getPropertyValue('--navbar-h')) || 96;
+  const y = el.getBoundingClientRect().top + window.scrollY - (navH + GAP);
+  window.scrollTo({ top: y, behavior: 'smooth' });
+}
 
-const Row = styled.div`
-  width: 100%;
-  max-width: min(var(--navbar-max, 1640px), 96vw);
-  margin: 0 auto;
-  padding-inline: clamp(14px, 4vw, 56px);
+type Locale = 'tr' | 'en' | 'de';
 
-  /* GRID: logo | nav | locale/burger */
-  display: grid; align-items: center;
-  grid-template-columns: auto 1fr auto;
-  grid-template-areas: "left center right";
-  column-gap: clamp(12px, 4vw, 56px);
-
-  container-type: inline-size;
-`;
-
-const Left  = styled.div`
-  grid-area: left;
-  min-width: 0;
-`;
-const Right = styled.div`
-  grid-area: right;
-  justify-self: end;
-  min-width: 0;
-  display:flex; align-items:center; gap:10px;
-`;
-
-/* ================= LOGO ================= */
-const Brand = styled(Link)`
-  display:inline-flex; align-items:center; text-decoration:none; user-select:none;
-`;
-const LogoImg = styled.img`
-  width: clamp(72px, 8vw, 200px); height:auto; display:block;
-  @media (max-width:520px){ width: clamp(60px, 17vw, 140px); }
-`;
-
-/* ========== DESKTOP NAV (sadece desktop) ========== */
-const DesktopNav = styled.nav`
-  grid-area: center;
-  min-width: 0;
-  display: flex; justify-content: center;
-  justify-self: center;
-
-  @media (max-width:${BP}px){ display:none; }
-`;
-
-/* Cam tüp: 1280→863px ≈ 67.4% hedef oran */
-const Glass = styled.div`
-  position:relative;
-  display:inline-flex; align-items:center; justify-content:center;
-
-  gap: clamp(10px, 3.5cqw, 49px);
-  min-height: clamp(44px, 6cqw, 82px);
-  padding-block: clamp(8px, 2cqw, 25px);
-  padding-inline: clamp(14px, 3cqw, 61px);
-  border-radius: clamp(20px, 2.6cqw, 33px);
-
-  width: clamp(max-content, 67.4cqw, 100%);
-  max-width: 100%;
-
-  /* >>> dropdown panelin kesilmemesi için */
-  overflow: visible;
-
-  background:
-    linear-gradient(180deg, rgba(7,12,24,.62), rgba(7,12,24,.46)),
-    ${glassOverlay};
-  backdrop-filter: blur(clamp(16px, 3.1cqw, 40px));
-  -webkit-backdrop-filter: blur(clamp(16px, 3.1cqw, 40px));
-  border:1px solid rgba(255,255,255,.10);
-  box-shadow:0 1px 0 rgba(255,255,255,.06) inset, 0 6px 24px rgba(0,0,0,.25);
-
-  @container (max-width: 1020px){
-    gap: clamp(8px, 2.4cqw, 36px);
-    padding-inline: clamp(10px, 2.4cqw, 24px);
-  }
-  @container (max-width: 920px){
-    gap: clamp(6px, 1.8cqw, 24px);
-    padding-inline: clamp(8px, 1.8cqw, 16px);
-  }
-`;
-
-const NavLink = styled(Link)`
-  white-space:nowrap;
-  font-family:'Montserrat', ui-sans-serif, system-ui;
-  font-size:clamp(13px, 1.1vw, 19px);
-  line-height:1; font-weight:500;
-  color:#EDEFF6; text-decoration:none;
-  padding:clamp(5px,.5vw,9px) clamp(8px,1vw,14px);
-  border-radius:12px; transition: color .15s, background .15s;
-
-  /* Sadece hover efekti, aktif (current) renklendirme YOK */
-  &:hover{ color:#fff; background:rgba(255,255,255,.08); }
-`;
-
-/* ===== Dropdown (desktop) ===== */
-const Dropdown = styled.div`
-  position:relative; z-index: 1;
-  &::after{ content:''; position:absolute; left:0; right:0; top:100%; height:12px; }
-`;
-
-const DropBtn = styled.button`
-  appearance:none; border:0; background:transparent; cursor:pointer;
-  white-space:nowrap; font-family:'Montserrat', ui-sans-serif, system-ui;
-  font-size:clamp(13px,1.1vw,19px); line-height:1; font-weight:500; color:#EDEFF6;
-  padding:clamp(5px,.5vw,9px) clamp(8px,1vw,14px); border-radius:12px;
-  display:inline-flex; align-items:center; gap:6px;
-  transition: color .15s, background .15s;
-  ${Dropdown}:hover &{ color:#fff; background:rgba(255,255,255,.08); }
-`;
-
-const Panel = styled.div`
-  position:absolute; left:50%; top:calc(100% + 12px); transform:translateX(-50%);
-  /* Bar 4000, Panel bunun içinde daha da üstte olsun */
-  z-index: 41000;
-
-  min-width:240px; padding:10px; border-radius:14px;
-  background: linear-gradient(180deg, rgba(7,12,24,.78), rgba(7,12,24,.66)), ${glassOverlay};
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  border:1px solid rgba(255,255,255,.10);
-  box-shadow:0 8px 32px rgba(0,0,0,.35);
-
-  opacity:0; pointer-events:none; translate:0 -6px; transition:opacity .15s, translate .15s;
-
-  ${Dropdown}:hover &{ opacity:1; pointer-events:auto; translate:0 0; }
-`;
-
-const PanelLink = styled(Link)`
-  display:block; padding:10px 12px; border-radius:10px; color:#EDEFF6; text-decoration:none; font-size:14px;
-  &:hover{ background:rgba(255,255,255,.08); color:#fff; }
-`;
-
-/* ========== Burger (sadece mobile) ========== */
-const BurgerBtn = styled.button`
-  display:none;
-  @media (max-width:${BP}px){ display:inline-flex; }
-  width:44px; height:40px; align-items:center; justify-content:center;
-  border:1px solid rgba(255,255,255,.12); border-radius:10px; background:rgba(255,255,255,.06);
-  cursor:pointer; outline:none; touch-action:manipulation;
-  span, span::before, span::after{
-    content:''; display:block; width:20px; height:2px; background:#EDEFF6; border-radius:2px;
-    transition:transform .2s, opacity .2s;
-  }
-  span{ position:relative; }
-  span::before{ position:absolute; top:-6px; }
-  span::after{ position:absolute; top:6px; }
-  &.open span{ transform:rotate(45deg); }
-  &.open span::before{ transform:rotate(90deg); top:0; }
-  &.open span::after{ opacity:0; }
-`;
-
-const DesktopLocale = styled.div`
-  display:flex; align-items:center;
-  @media (max-width:${BP}px){ display:none; }
-`;
-
-/* ========== Mobile Drawer ========== */
-const MobileSheet = styled.div<{ $open:boolean }>`
-  position:fixed; inset:0; z-index:10000;
-  display:${({$open})=>($open?'block':'none')};
-  background:rgba(5,7,14,.55);
-  backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
-`;
-const MobilePanel = styled.nav`
-  position:absolute; top:0; right:0; width:min(86vw, 360px); height:100%;
-  background: linear-gradient(180deg, rgba(7,12,24,.92), rgba(7,12,24,.88)), ${glassOverlay};
-  backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
-  border-left:1px solid rgba(255,255,255,.08); box-shadow:-12px 0 32px rgba(0,0,0,.35);
-  padding:18px 16px 24px; display:flex; flex-direction:column; gap:6px; overflow-y:auto;
-  z-index:10080;
-`;
-const MobileHeader = styled.div`display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px;`;
-const CloseBtn = styled.button`
-  width:40px; height:36px; border-radius:10px; border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.06); color:#EDEFF6; cursor:pointer;
-`;
-const MobileLink = styled(Link)`
-  padding:12px 10px; border-radius:12px; color:#EDEFF6; text-decoration:none; font-size:16px; line-height:22px;
-  &:hover{ background:rgba(255,255,255,.08); }
-
-  /* Mobile'da da aktif renklendirme yok */
-`;
-
-/* ========== TYPES ========== */
-type Path = '' | '/projects' | '/services' | '/ad-solutions' | '/references' | '/contact';
-
-/* ========== COMPONENT ========== */
 export default function Navbar(
-  props: { locale: string; contact?: { phones?: string[]; email?: string } }
+  props: { locale: Locale; contact?: { phones?: string[]; email?: string } }
 ) {
   const { locale } = props;
-
   const pathname = usePathname();
-  const mk = (p: Path): UrlObject => ({ pathname: `/${locale}${p}` });
-  const is = (p: Path) => (pathname === `/${locale}${p}` ? { 'aria-current': 'page' as const } : {});
+
+  // ✅ sub destekli path üret (typed-routes: Route'a cast)
+  const toPath = (segment?: string, sub?: string): Route =>
+    (`/${locale}${segment ? `/${segment}` : ''}${sub ? `/${sub}` : ''}`) as Route;
+
+  // /tr/services/web → /tr/services aktif kalsın (startsWith)
+  const is = (segment?: string) => {
+    const target = `/${locale}${segment ? `/${segment}` : ''}`;
+    if (!segment) return pathname === target ? { 'aria-current': 'page' as const } : {};
+    return pathname.startsWith(target) ? { 'aria-current': 'page' as const } : {};
+  };
+
+  // Aynı path ise default'u iptal et → scroll
+  const clickSamePath = (e: React.MouseEvent, targetPath: string, sectionId: string) => {
+    if (pathname === targetPath) {
+      e.preventDefault();
+      scrollToSection(sectionId);
+    }
+  };
 
   const [mobileOpen, setMobileOpen] = React.useState(false);
-
   React.useEffect(() => { setMobileOpen(false); }, [pathname]);
+
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileOpen(false); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
   React.useEffect(() => {
     if (!mobileOpen) return;
     const prev = document.body.style.overflow;
@@ -230,19 +68,38 @@ export default function Navbar(
 
   return (
     <>
-      <Bar>
+      <Bar data-navbar="">
         <Row>
           <Left>
-            <Brand href={mk('')} aria-label="Toronto anasayfa">
+            <Brand
+              href={toPath()}
+              aria-label="Toronto anasayfa"
+              onClick={(e) => clickSamePath(e, `/${locale}`, 'hero')}
+              scroll={false}
+            >
               <LogoImg src="/logo.svg" alt="Toronto" />
             </Brand>
           </Left>
 
-          {/* Desktop nav – sadece breakpoint üstünde */}
           <DesktopNav aria-label="Ana menü">
             <Glass>
-              <NavLink href={mk('')} {...is('')}>Ana Sayfa</NavLink>
-              <NavLink href={mk('/projects')} {...is('/projects')}>Satılık Projeler</NavLink>
+              <NavLink
+                href={toPath()}
+                {...is()}
+                onClick={(e) => clickSamePath(e, `/${locale}`, 'hero')}
+                scroll={false}
+              >
+                Ana Sayfa
+              </NavLink>
+
+              <NavLink
+                href={toPath('projects')}
+                {...is('projects')}
+                onClick={(e) => clickSamePath(e, `/${locale}/projects`, 'projects')}
+                scroll={false}
+              >
+                Satılık Projeler
+              </NavLink>
 
               <Dropdown>
                 <DropBtn type="button" aria-haspopup="menu" aria-expanded="false">
@@ -252,15 +109,57 @@ export default function Navbar(
                   </svg>
                 </DropBtn>
                 <Panel role="menu" aria-label="Hizmetlerimiz">
-                  <PanelLink href={{ ...mk('/services'), hash: 'web' }}>Web Geliştirme</PanelLink>
-                  <PanelLink href={{ ...mk('/services'), hash: 'design' }}>Tasarım</PanelLink>
-                  <PanelLink href={{ ...mk('/services'), hash: 'seo' }}>SEO / Performans</PanelLink>
+                  {/* ✅ Alt başlıklar alt-segment ile */}
+                  <PanelLink
+                    href={toPath('services','web')}
+                    onClick={(e) => clickSamePath(e, `/${locale}/services/web`, 'web')}
+                    scroll={false}
+                  >
+                    Web Geliştirme
+                  </PanelLink>
+                  <PanelLink
+                    href={toPath('services','design')}
+                    onClick={(e) => clickSamePath(e, `/${locale}/services/design`, 'design')}
+                    scroll={false}
+                  >
+                    Tasarım
+                  </PanelLink>
+                  <PanelLink
+                    href={toPath('services','seo')}
+                    onClick={(e) => clickSamePath(e, `/${locale}/services/seo`, 'seo')}
+                    scroll={false}
+                  >
+                    SEO / Performans
+                  </PanelLink>
                 </Panel>
               </Dropdown>
 
-              <NavLink href={mk('/ad-solutions')} {...is('/ad-solutions')}>Reklam Çözümleri</NavLink>
-              <NavLink href={mk('/references')} {...is('/references')}>Referanslar</NavLink>
-              <NavLink href={mk('/contact')} {...is('/contact')}>İletişim</NavLink>
+              <NavLink
+                href={toPath('ad-solutions')}
+                {...is('ad-solutions')}
+                onClick={(e) => clickSamePath(e, `/${locale}/ad-solutions`, 'ad-solutions')}
+                scroll={false}
+              >
+                Reklam Çözümleri
+              </NavLink>
+
+              <NavLink
+                href={toPath('references')}
+                {...is('references')}
+                onClick={(e) => clickSamePath(e, `/${locale}/references`, 'references')}
+                scroll={false}
+              >
+                Referanslar
+              </NavLink>
+
+              <NavLink
+                href={toPath('contact')}
+                {...is('contact')}
+                onClick={(e) => clickSamePath(e, `/${locale}/contact`, 'contact')}
+                scroll={false}
+              >
+                İletişim
+              </NavLink>
             </Glass>
           </DesktopNav>
 
@@ -279,22 +178,93 @@ export default function Navbar(
         </Row>
       </Bar>
 
-      {/* Mobile drawer – sadece state’e bağlı */}
+      {/* Mobile */}
       <MobileSheet $open={mobileOpen} onClick={() => setMobileOpen(false)}>
         <MobilePanel id="mobile-menu" onClick={(e) => e.stopPropagation()}>
           <MobileHeader>
-            <Brand href={mk('')} aria-label="Toronto anasayfa" onClick={() => setMobileOpen(false)}>
+            <Brand
+              href={toPath()}
+              aria-label="Toronto anasayfa"
+              onClick={(e) => { clickSamePath(e, `/${locale}`, 'hero'); setMobileOpen(false); }}
+              scroll={false}
+            >
               <LogoImg src="/logo.svg" alt="Toronto" />
             </Brand>
             <CloseBtn onClick={() => setMobileOpen(false)} aria-label="Kapat">✕</CloseBtn>
           </MobileHeader>
 
-          <MobileLink href={mk('')} {...is('')} onClick={() => setMobileOpen(false)}>Ana Sayfa</MobileLink>
-          <MobileLink href={mk('/projects')} {...is('/projects')} onClick={() => setMobileOpen(false)}>Satılık Projeler</MobileLink>
-          <MobileLink href={mk('/services')} {...is('/services')} onClick={() => setMobileOpen(false)}>Hizmetlerimiz</MobileLink>
-          <MobileLink href={mk('/ad-solutions')} {...is('/ad-solutions')} onClick={() => setMobileOpen(false)}>Reklam Çözümleri</MobileLink>
-          <MobileLink href={mk('/references')} {...is('/references')} onClick={() => setMobileOpen(false)}>Referanslar</MobileLink>
-          <MobileLink href={mk('/contact')} {...is('/contact')} onClick={() => setMobileOpen(false)}>İletişim</MobileLink>
+          <MobileLink
+            href={toPath()}
+            {...is()}
+            onClick={(e) => { clickSamePath(e, `/${locale}`, 'hero'); setMobileOpen(false); }}
+            scroll={false}
+          >
+            Ana Sayfa
+          </MobileLink>
+
+          <MobileLink
+            href={toPath('projects')}
+            {...is('projects')}
+            onClick={(e) => { clickSamePath(e, `/${locale}/projects`, 'projects'); setMobileOpen(false); }}
+            scroll={false}
+          >
+            Satılık Projeler
+          </MobileLink>
+
+          {/* ✅ Mobile alt-segmentler de düzeltildi */}
+          <MobileLink
+            href={toPath('services','web')}
+            {...is('services')}
+            onClick={(e) => { clickSamePath(e, `/${locale}/services/web`, 'web'); setMobileOpen(false); }}
+            scroll={false}
+          >
+            Web Geliştirme
+          </MobileLink>
+
+          <MobileLink
+            href={toPath('services','design')}
+            {...is('services')}
+            onClick={(e) => { clickSamePath(e, `/${locale}/services/design`, 'design'); setMobileOpen(false); }}
+            scroll={false}
+          >
+            Tasarım
+          </MobileLink>
+
+          <MobileLink
+            href={toPath('services','seo')}
+            {...is('services')}
+            onClick={(e) => { clickSamePath(e, `/${locale}/services/seo`, 'seo'); setMobileOpen(false); }}
+            scroll={false}
+          >
+            SEO / Performans
+          </MobileLink>
+
+          <MobileLink
+            href={toPath('ad-solutions')}
+            {...is('ad-solutions')}
+            onClick={(e) => { clickSamePath(e, `/${locale}/ad-solutions`, 'ad-solutions'); setMobileOpen(false); }}
+            scroll={false}
+          >
+            Reklam Çözümleri
+          </MobileLink>
+
+          <MobileLink
+            href={toPath('references')}
+            {...is('references')}
+            onClick={(e) => { clickSamePath(e, `/${locale}/references`, 'references'); setMobileOpen(false); }}
+            scroll={false}
+          >
+            Referanslar
+          </MobileLink>
+
+          <MobileLink
+            href={toPath('contact')}
+            {...is('contact')}
+            onClick={(e) => { clickSamePath(e, `/${locale}/contact`, 'contact'); setMobileOpen(false); }}
+            scroll={false}
+          >
+            İletişim
+          </MobileLink>
 
           <div style={{ marginTop: 'auto', paddingTop: 8 }}>
             <LocaleSwitcher />
