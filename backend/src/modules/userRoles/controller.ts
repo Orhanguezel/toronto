@@ -1,3 +1,7 @@
+// =============================================================
+// FILE: src/modules/userRoles/controller.ts
+// =============================================================
+
 import type { RouteHandler } from "fastify";
 import { randomUUID } from "crypto";
 import { db } from "@/db/client";
@@ -6,57 +10,90 @@ import { userRoles } from "./schema";
 import {
   userRoleListQuerySchema,
   createUserRoleSchema,
-  type UserRoleListQuery,
-  type CreateUserRoleInput,
 } from "./validation";
 
-// src/modules/userRoles/controller.ts
+/* ------------------------- LIST ------------------------- */
+
 export const listUserRoles: RouteHandler = async (req, reply) => {
-  const q = userRoleListQuerySchema.parse(req.query ?? {}) as UserRoleListQuery;
+  // Query’yi Zod ile parse et
+  const q = userRoleListQuerySchema.parse(req.query ?? {});
 
   const conds: unknown[] = [];
   if (q.user_id) conds.push(eq(userRoles.user_id, q.user_id));
-  if (q.role)    conds.push(eq(userRoles.role, q.role));
+  if (q.role) conds.push(eq(userRoles.role, q.role));
 
   let qb = db.select().from(userRoles).$dynamic();
 
-  if (conds.length === 1) qb = qb.where(conds[0] as any);
-  else if (conds.length > 1) qb = qb.where(and(...(conds as any)));
+  if (conds.length === 1) {
+    qb = qb.where(conds[0] as any);
+  } else if (conds.length > 1) {
+    qb = qb.where(and(...(conds as any)));
+  }
 
-  const dir = q.direction === "desc" ? desc : asc;
-  qb = qb.orderBy(dir(userRoles.created_at));
+  const dirFn = q.direction === "desc" ? desc : asc;
+  qb = qb.orderBy(dirFn(userRoles.created_at));
 
-  // default limit: 50
-  if (q.limit && q.limit > 0) qb = qb.limit(q.limit);
-  else qb = qb.limit(50);
+  const limit = q.limit ?? 50;
+  const offset = q.offset ?? 0;
 
-  if (q.offset && q.offset >= 0) qb = qb.offset(q.offset);
+  qb = qb.limit(limit).offset(offset);
 
   const rows = await qb;
   return reply.send(rows);
 };
 
+/* ------------------------- CREATE ------------------------- */
 
 export const createUserRole: RouteHandler = async (req, reply) => {
   try {
-    const body = createUserRoleSchema.parse(req.body ?? {}) as CreateUserRoleInput;
+    const body = createUserRoleSchema.parse(req.body ?? {});
+
     const id = randomUUID();
 
-    await db.insert(userRoles).values({ id, user_id: body.user_id, role: body.role });
-    const [row] = await db.select().from(userRoles).where(eq(userRoles.id, id)).limit(1);
+    await db.insert(userRoles).values({
+      id,
+      user_id: body.user_id,
+      role: body.role,
+    });
+
+    const [row] = await db
+      .select()
+      .from(userRoles)
+      .where(eq(userRoles.id, id))
+      .limit(1);
+
     return reply.code(201).send(row);
   } catch (err: any) {
-    // mysql2: err?.code === 'ER_DUP_ENTRY'
-    if (err?.code === 'ER_DUP_ENTRY') {
-      return reply.code(409).send({ error: { message: 'user_role_already_exists' } });
+    if (err?.code === "ER_DUP_ENTRY") {
+      return reply
+        .code(409)
+        .send({ error: { message: "user_role_already_exists" } });
     }
-    throw err;
+    req.log?.error?.(err, "create_user_role_failed");
+    return reply
+      .code(500)
+      .send({ error: { message: "create_user_role_failed" } });
   }
 };
 
+/* ------------------------- DELETE ------------------------- */
 
 export const deleteUserRole: RouteHandler = async (req, reply) => {
-  const { id } = req.params as { id: string };
-  await db.delete(userRoles).where(eq(userRoles.id, id));
+  const { id } = (req.params ?? {}) as { id?: string };
+
+  if (!id) {
+    return reply
+      .code(400)
+      .send({ error: { message: "id_required" } });
+  }
+
+  const res = await db.delete(userRoles).where(eq(userRoles.id, id));
+  const affected =
+    (res as any)?.affectedRows != null ? Number((res as any).affectedRows) : 0;
+
+  if (!affected) {
+    return reply.code(404).send({ error: { message: "not_found" } });
+  }
+
   return reply.code(204).send();
 };

@@ -1,11 +1,13 @@
-import type { FastifyInstance } from 'fastify';
-import {
-  listMenuItems,
-  getMenuItemById,
-} from './controller';
+// ===================================================================
+// FILE: src/modules/menuItems/router.ts
+// ===================================================================
+
+import type { FastifyInstance } from "fastify";
+import { listMenuItems, getMenuItemById } from "./controller";
+
+const BASE = "/menu_items";
 
 export async function registerMenuItems(app: FastifyInstance) {
-  // Varsayılan olarak public; ekstra config vermiyoruz.
-  app.get('/menu_items', listMenuItems);
-  app.get('/menu_items/:id', getMenuItemById);
+  app.get(`${BASE}`, { config: { public: true } }, listMenuItems);
+  app.get(`${BASE}/:id`, { config: { public: true } }, getMenuItemById);
 }

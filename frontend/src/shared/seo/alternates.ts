@@ -1,3 +1,5 @@
+// src/shared/seo/alternates.ts
+
 import { SUPPORTED_LOCALES } from "@/lib/i18n/locales";
 
 export type Locale = (typeof SUPPORTED_LOCALES)[number];

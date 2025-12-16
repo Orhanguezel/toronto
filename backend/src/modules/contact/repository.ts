@@ -1,28 +1,26 @@
 // =============================================================
 // FILE: src/modules/contact/repository.ts
 // =============================================================
-import type { FastifyInstance } from "fastify";
-import type { ContactCreateInput, ContactListParams, ContactUpdateInput } from "./validation";
-import type { ContactView } from "./schema";
-
-function mapRow(r: any): ContactView {
-  return {
-    id: r.id,
-    name: r.name,
-    email: r.email,
-    phone: r.phone,
-    subject: r.subject,
-    message: r.message,
-    status: r.status,
-    is_resolved: Number(r.is_resolved) === 1,
-    admin_note: r.admin_note,
-    ip: r.ip,
-    user_agent: r.user_agent,
-    website: r.website,
-    created_at: r.created_at,
-    updated_at: r.updated_at,
-  };
-}
+import { randomUUID } from "crypto";
+import { db } from "@/db/client";
+import {
+  contact_messages,
+  type ContactView,
+  type ContactInsert,
+} from "./schema";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  sql,
+  type SQL,
+} from "drizzle-orm";
+import type {
+  ContactCreateInput,
+  ContactListParams,
+  ContactUpdateInput,
+} from "./validation";
 
 function safeOrderBy(col?: string) {
   switch (col) {
@@ -37,46 +35,50 @@ function safeOrderBy(col?: string) {
 }
 
 export async function repoCreateContact(
-  app: FastifyInstance,
-  body: ContactCreateInput & { ip?: string | null; user_agent?: string | null }
+  body: ContactCreateInput & { ip?: string | null; user_agent?: string | null },
 ): Promise<ContactView> {
-  const mysql = (app as any).mysql;
+  const id = randomUUID();
 
-  const [result] = await mysql.query(
-    `
-    INSERT INTO contact_messages
-    (id, name, email, phone, subject, message, status, is_resolved, admin_note, ip, user_agent, website, created_at, updated_at)
-    VALUES
-    (UUID(), ?, ?, ?, ?, ?, 'new', 0, NULL, ?, ?, ?, NOW(3), NOW(3))
-    `,
-    [
-      body.name.trim(),
-      body.email.trim(),
-      body.phone.trim(),
-      body.subject.trim(),
-      body.message.trim(),
-      body.ip ?? null,
-      body.user_agent ?? null,
-      body.website ?? null,
-    ]
-  );
+  const insert: ContactInsert = {
+    id,
+    name: body.name.trim(),
+    email: body.email.trim(),
+    phone: body.phone.trim(),
+    subject: body.subject.trim(),
+    message: body.message,
+    status: "new",
+    is_resolved: false,
+    admin_note: null,
+    ip: body.ip ?? null,
+    user_agent: body.user_agent ?? null,
+    website: body.website ?? null,
+    // created_at / updated_at DB default
+  };
 
-  const [rows] = await mysql.query(`SELECT * FROM contact_messages WHERE id = (SELECT id FROM contact_messages ORDER BY created_at DESC LIMIT 1) LIMIT 1`);
-  return mapRow((rows as any[])[0]);
+  await db.insert(contact_messages).values(insert);
+
+  const [row] = await db
+    .select()
+    .from(contact_messages)
+    .where(eq(contact_messages.id, id))
+    .limit(1);
+
+  return row as ContactView;
 }
 
-export async function repoGetContactById(app: FastifyInstance, id: string): Promise<ContactView | null> {
-  const mysql = (app as any).mysql;
-  const [rows] = await mysql.query(`SELECT * FROM contact_messages WHERE id = ? LIMIT 1`, [id]);
-  const row = (rows as any[])[0];
-  return row ? mapRow(row) : null;
+export async function repoGetContactById(id: string): Promise<ContactView | null> {
+  const [row] = await db
+    .select()
+    .from(contact_messages)
+    .where(eq(contact_messages.id, id))
+    .limit(1);
+
+  return (row ?? null) as ContactView | null;
 }
 
 export async function repoListContacts(
-  app: FastifyInstance,
-  params: ContactListParams
+  params: ContactListParams,
 ): Promise<ContactView[]> {
-  const mysql = (app as any).mysql;
   const {
     search,
     status,
@@ -87,77 +89,108 @@ export async function repoListContacts(
     order = "desc",
   } = params;
 
-  const where: string[] = [];
-  const binds: any[] = [];
+  const filters: SQL[] = [];
 
-  if (search) {
-    const q = `%${search}%`;
-    where.push(`(name LIKE ? OR email LIKE ? OR phone LIKE ? OR subject LIKE ? OR message LIKE ?)`);
-    binds.push(q, q, q, q, q);
+  if (search && search.trim()) {
+    const q = `%${search.trim()}%`;
+    filters.push(
+      sql`
+        (
+          ${contact_messages.name}    LIKE ${q}
+          OR ${contact_messages.email}   LIKE ${q}
+          OR ${contact_messages.phone}   LIKE ${q}
+          OR ${contact_messages.subject} LIKE ${q}
+          OR ${contact_messages.message} LIKE ${q}
+        )
+      `,
+    );
   }
+
   if (status) {
-    where.push(`status = ?`);
-    binds.push(status);
+    filters.push(eq(contact_messages.status, status));
   }
+
   if (typeof resolved === "boolean") {
-    where.push(`is_resolved = ?`);
-    binds.push(resolved ? 1 : 0);
+    filters.push(eq(contact_messages.is_resolved, resolved));
   }
 
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const orderCol = safeOrderBy(orderBy);
-  const orderDir = order?.toLowerCase() === "asc" ? "ASC" : "DESC";
+  const whereExpr: SQL | undefined =
+    filters.length > 0 ? (and(...filters) as SQL) : undefined;
 
-  const sql = `
-    SELECT *
-    FROM contact_messages
-    ${whereSql}
-    ORDER BY ${orderCol} ${orderDir}
-    LIMIT ? OFFSET ?
-  `;
-  const [rows] = await mysql.query(sql, [...binds, Number(limit), Number(offset)]);
-  return (rows as any[]).map(mapRow);
+  const orderCol = safeOrderBy(orderBy);
+  const orderDir = order?.toLowerCase() === "asc" ? "asc" : "desc";
+
+  const orderExpr =
+    orderCol === "created_at"
+      ? orderDir === "asc"
+        ? asc(contact_messages.created_at)
+        : desc(contact_messages.created_at)
+      : orderCol === "updated_at"
+      ? orderDir === "asc"
+        ? asc(contact_messages.updated_at)
+        : desc(contact_messages.updated_at)
+      : orderCol === "status"
+      ? orderDir === "asc"
+        ? asc(contact_messages.status)
+        : desc(contact_messages.status)
+      : orderDir === "asc"
+      ? asc(contact_messages.name)
+      : desc(contact_messages.name);
+
+  const baseQuery = db
+    .select()
+    .from(contact_messages);
+
+  const rows = await (whereExpr ? baseQuery.where(whereExpr) : baseQuery)
+    .orderBy(orderExpr)
+    .limit(Number(limit))
+    .offset(Number(offset));
+
+  return rows as ContactView[];
 }
 
 export async function repoUpdateContact(
-  app: FastifyInstance,
   id: string,
-  body: ContactUpdateInput
+  body: ContactUpdateInput,
 ): Promise<ContactView | null> {
-  const mysql = (app as any).mysql;
-
-  const fields: string[] = [];
-  const binds: any[] = [];
+  const patch: Partial<ContactInsert> = {};
 
   if (body.status) {
-    fields.push(`status = ?`);
-    binds.push(body.status);
+    patch.status = body.status;
   }
   if (typeof body.is_resolved === "boolean") {
-    fields.push(`is_resolved = ?`);
-    binds.push(body.is_resolved ? 1 : 0);
+    patch.is_resolved = body.is_resolved;
   }
   if (typeof body.admin_note !== "undefined") {
-    fields.push(`admin_note = ?`);
-    binds.push(body.admin_note ?? null);
+    patch.admin_note = body.admin_note ?? null;
   }
 
-  if (!fields.length) {
-    return await repoGetContactById(app, id);
+  if (Object.keys(patch).length === 0) {
+    // hiçbir alan yok → mevcut kaydı döndür
+    return repoGetContactById(id);
   }
 
-  const sql = `
-    UPDATE contact_messages
-    SET ${fields.join(", ")}, updated_at = NOW(3)
-    WHERE id = ?
-    LIMIT 1
-  `;
-  await mysql.query(sql, [...binds, id]);
-  return await repoGetContactById(app, id);
+  await db
+    .update(contact_messages)
+    .set({
+      ...patch,
+      updated_at: new Date() as any,
+    })
+    .where(eq(contact_messages.id, id));
+
+  return repoGetContactById(id);
 }
 
-export async function repoDeleteContact(app: FastifyInstance, id: string): Promise<boolean> {
-  const mysql = (app as any).mysql;
-  const [res] = await mysql.query(`DELETE FROM contact_messages WHERE id = ? LIMIT 1`, [id]);
-  return (res?.affectedRows ?? 0) > 0;
+export async function repoDeleteContact(id: string): Promise<boolean> {
+  const res = await db
+    .delete(contact_messages)
+    .where(eq(contact_messages.id, id))
+    .execute();
+
+  const affected =
+    (res as any)?.affectedRows != null
+      ? Number((res as any).affectedRows)
+      : 0;
+
+  return affected > 0;
 }

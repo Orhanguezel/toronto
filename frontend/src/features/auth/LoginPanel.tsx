@@ -1,30 +1,29 @@
+// src/features/auth/LoginPanel.tsx
+
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import styled from "styled-components";
 import { useRouter } from "next/navigation";
-import type { Route } from "next"; // ⬅️ EKLE
+import type { Route } from "next";
+import { toRoute } from "@/shared/routing/toRoute";
+
+
 import { Button } from "@/shared/ui/buttons/Button";
+
 import {
-  usePasswordLoginMutation,
-  useSignupMutation,
+  useLoginMutation,          // alias: token
+  useSignUpMutation,         // signup endpoint'in gerçek export'u
   useGoogleStartMutation,
   useStatusQuery,
-} from "@/integrations/endpoints/public/auth.entpoints";
+} from "@/integrations/rtk/endpoints/auth.endpoints";
 
-/** İç linkleri güvenle Route'a çevirir */
-function toRoute(href?: string, fallback: Route = "/" as Route): Route {
-  if (!href) return fallback;
-  // absolute URL (http:, https:) veya protokolleri reddet
-  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(href)) return fallback;
-  // iç rota değilse reddet
-  if (!href.startsWith("/")) return fallback;
-  const cleaned = href.replace(/\s+/g, "");
-  return (cleaned || fallback) as Route;
-}
+import { useResolvedLocale } from "@/i18n/locale";
+import { useUiSection } from "@/i18n/uiDb";
+import type { SupportedLocale } from "@/types/common";
 
 export default function LoginPanel({
-  locale,
+  locale: localeProp,
   nextDest, // /admin, /tr/admin, vb.
 }: {
   locale: string;
@@ -32,19 +31,72 @@ export default function LoginPanel({
 }) {
   const router = useRouter();
 
-  // /tr | /en | /de → runtime olduğu için cast gerekiyor
+  // Locale'i normalize et (route paramından veya prop'tan)
+  const locale = useResolvedLocale(localeProp) as SupportedLocale;
+
+  // UI strings (DB → i18n fallback → hard fallback)
+  const { ui } = useUiSection("ui_auth", locale);
+
+  const title = ui(
+    "ui_auth_title",
+    locale === "tr" ? "Giriş Yap" : locale === "de" ? "Anmelden" : "Sign In"
+  );
+
+  const lead = ui(
+    "ui_auth_lead",
+    locale === "tr"
+      ? "E-posta/şifre ile giriş yapın veya Google ile devam edin."
+      : locale === "de"
+        ? "Melden Sie sich mit E-Mail/Passwort an oder fahren Sie mit Google fort."
+        : "Sign in with email/password or continue with Google."
+  );
+
+  // Tab butonları / label’lar için anahtarlar yoksa hard fallback ile bırakıyorum.
+  // İstersen bunları da UI_FALLBACK_EN + UI_KEYS.auth içine ekleyip DB’den yönetiriz.
+  const tabLogin = ui("ui_auth_tab_login", locale === "tr" ? "Giriş Yap" : locale === "de" ? "Anmelden" : "Sign In");
+  const tabRegister = ui("ui_auth_tab_register", locale === "tr" ? "Kayıt Ol" : locale === "de" ? "Registrieren" : "Register");
+
+  const labelEmail = ui("ui_auth_email_label", locale === "tr" ? "E-posta" : locale === "de" ? "E-Mail" : "Email");
+  const labelPassword = ui("ui_auth_password_label", locale === "tr" ? "Şifre" : locale === "de" ? "Passwort" : "Password");
+
+  const btnLogin = ui("ui_auth_submit", locale === "tr" ? "Giriş" : locale === "de" ? "Anmelden" : "Sign In");
+  const btnGoogle = ui("ui_auth_google_button", locale === "tr" ? "Google ile devam et" : locale === "de" ? "Mit Google fortfahren" : "Continue with Google");
+
+  const errLogin = ui(
+    "ui_auth_error_login",
+    locale === "tr"
+      ? "Giriş başarısız. E-posta/şifreyi kontrol edin."
+      : locale === "de"
+        ? "Anmeldung fehlgeschlagen. Bitte E-Mail/Passwort prüfen."
+        : "Login failed. Please check email/password."
+  );
+
+  const errRegister = ui(
+    "ui_auth_error_register",
+    locale === "tr"
+      ? "Kayıt başarısız. E-posta kullanımda olabilir."
+      : locale === "de"
+        ? "Registrierung fehlgeschlagen. E-Mail wird möglicherweise bereits verwendet."
+        : "Registration failed. Email may already be in use."
+  );
+
+  // /tr | /en | /de
   const fallbackHome = (`/${locale}`) as Route;
 
-  // nextDest varsa onu, yoksa /admin → her zaman Route
+  // nextDest varsa onu, yoksa /admin
   const targetAfterAuth = useMemo<Route>(
     () => toRoute(nextDest?.trim() || "/admin", fallbackHome),
     [nextDest, fallbackHome]
   );
 
   const { data: status } = useStatusQuery();
-  const [passwordLogin, { isLoading: loginBusy, error: loginErr }] = usePasswordLoginMutation();
-  const [signup, { isLoading: regBusy, error: regErr }] = useSignupMutation();
+
+  // RTK endpoints uyumlu mutasyonlar
+  const [login, { isLoading: loginBusy, error: loginErr }] = useLoginMutation();
+  const [signup, { isLoading: regBusy, error: regErr }] = useSignUpMutation();
   const [googleStart, { isLoading: googleBusy }] = useGoogleStartMutation();
+
+  const busy = loginBusy || regBusy || googleBusy;
 
   // Auth olduysa garanti yönlendir
   useEffect(() => {
@@ -60,17 +112,18 @@ export default function LoginPanel({
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
 
-  const busy = loginBusy || regBusy || googleBusy;
-
-  // Her zaman Route döndür
-  const safeReplace = (href?: string) => router.replace(toRoute(href, targetAfterAuth));
+  const safeReplace = (href?: string) =>
+    router.replace(toRoute(href, targetAfterAuth));
 
   const onSubmitLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await passwordLogin({ grant_type: "password", email, password }).unwrap();
-      safeReplace(); // targetAfterAuth'a gider
-    } catch {}
+      // RTK token mutation: { email, password }
+      await login({ email, password }).unwrap();
+      safeReplace(); // targetAfterAuth
+    } catch {
+      /* handled by loginErr */
+    }
   };
 
   const onSubmitRegister = async (e: React.FormEvent) => {
@@ -83,21 +136,26 @@ export default function LoginPanel({
         phone: phone || undefined,
       }).unwrap();
       safeReplace();
-    } catch {}
+    } catch {
+      /* handled by regErr */
+    }
   };
 
   const onGoogleClick = async () => {
     try {
-      // Backend absolute URL döndürürse window.location kullanıyoruz (typedRoutes’dan bağımsız)
+      // Backend string bekliyor: redirectTo
       const res = await googleStart({ redirectTo: targetAfterAuth }).unwrap();
-      if (res?.url) window.location.href = res.url;
+      if (res?.url) window.location.href = res.url; // absolute url
       else safeReplace();
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   };
 
   return (
     <Card>
-      <Title>Yönetim Girişi</Title>
+      <Title>{title}</Title>
+      <Lead>{lead}</Lead>
 
       <Tabs>
         <button
@@ -106,7 +164,7 @@ export default function LoginPanel({
           onClick={() => setMode("login")}
           disabled={busy}
         >
-          Giriş Yap
+          {tabLogin}
         </button>
         <button
           type="button"
@@ -114,26 +172,27 @@ export default function LoginPanel({
           onClick={() => setMode("register")}
           disabled={busy}
         >
-          Kayıt Ol
+          {tabRegister}
         </button>
       </Tabs>
 
       {mode === "login" ? (
         <form onSubmit={onSubmitLogin}>
           <Field>
-            <span>E-posta</span>
+            <span>{labelEmail}</span>
             <Input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               inputMode="email"
               disabled={busy}
-              placeholder="ornek@site.com"
+              placeholder={locale === "tr" ? "ornek@site.com" : "example@site.com"}
               required
             />
           </Field>
+
           <Field>
-            <span>Şifre</span>
+            <span>{labelPassword}</span>
             <Input
               type="password"
               value={password}
@@ -144,32 +203,34 @@ export default function LoginPanel({
               required
             />
           </Field>
-          {!!loginErr && (
-            <SmallError>Giriş başarısız. E-posta/şifreyi kontrol edin.</SmallError>
-          )}
+
+          {!!loginErr && <SmallError>{errLogin}</SmallError>}
+
           <div style={{ height: 12 }} />
+
           <Row>
             <Button type="submit" disabled={busy}>
-              Giriş
+              {btnLogin}
             </Button>
             <SecondaryBtn type="button" onClick={onGoogleClick} disabled={busy}>
-              Google ile devam et
+              {btnGoogle}
             </SecondaryBtn>
           </Row>
         </form>
       ) : (
         <form onSubmit={onSubmitRegister}>
           <Field>
-            <span>Ad Soyad (ops.)</span>
+            <span>{locale === "tr" ? "Ad Soyad (ops.)" : locale === "de" ? "Name (optional)" : "Full name (optional)"}</span>
             <Input
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               disabled={busy}
-              placeholder="Ad Soyad"
+              placeholder={locale === "tr" ? "Ad Soyad" : "Full name"}
             />
           </Field>
+
           <Field>
-            <span>Telefon (ops.)</span>
+            <span>{locale === "tr" ? "Telefon (ops.)" : locale === "de" ? "Telefon (optional)" : "Phone (optional)"}</span>
             <Input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
@@ -177,40 +238,43 @@ export default function LoginPanel({
               placeholder="+49 ..."
             />
           </Field>
+
           <Field>
-            <span>E-posta</span>
+            <span>{labelEmail}</span>
             <Input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               inputMode="email"
               disabled={busy}
-              placeholder="ornek@site.com"
+              placeholder={locale === "tr" ? "ornek@site.com" : "example@site.com"}
               required
             />
           </Field>
+
           <Field>
-            <span>Şifre</span>
+            <span>{labelPassword}</span>
             <Input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
               disabled={busy}
-              placeholder="en az 6 karakter"
+              placeholder={locale === "tr" ? "en az 6 karakter" : locale === "de" ? "mindestens 6 Zeichen" : "at least 6 characters"}
               required
             />
           </Field>
-          {!!regErr && (
-            <SmallError>Kayıt başarısız. E-posta kullanımda olabilir.</SmallError>
-          )}
+
+          {!!regErr && <SmallError>{errRegister}</SmallError>}
+
           <div style={{ height: 12 }} />
+
           <Row>
             <Button type="submit" disabled={busy}>
-              Kayıt Ol
+              {tabRegister}
             </Button>
             <SecondaryBtn type="button" onClick={onGoogleClick} disabled={busy}>
-              Google ile giriş
+              {locale === "tr" ? "Google ile giriş" : locale === "de" ? "Mit Google anmelden" : "Sign in with Google"}
             </SecondaryBtn>
           </Row>
         </form>
@@ -219,7 +283,7 @@ export default function LoginPanel({
   );
 }
 
-/* ===== Themed UI (senin stil dosyalarınla uyumlu) ===== */
+/* ===== Themed UI ===== */
 const Card = styled.div`
   width: 100%;
   max-width: 440px;
@@ -232,10 +296,17 @@ const Card = styled.div`
 `;
 
 const Title = styled.h2`
-  margin: 0 0 ${({ theme }) => theme.spacings.md};
+  margin: 0 0 ${({ theme }) => theme.spacings.xs};
   font-family: ${({ theme }) => theme.fonts.heading};
   font-size: ${({ theme }) => theme.fontSizes.h4};
   color: ${({ theme }) => theme.colors.title};
+`;
+
+const Lead = styled.p`
+  margin: 0 0 ${({ theme }) => theme.spacings.md};
+  color: ${({ theme }) => theme.colors.textSecondary};
+  font-size: ${({ theme }) => theme.fontSizes.sm};
+  line-height: 1.5;
 `;
 
 const Tabs = styled.div`
@@ -291,7 +362,9 @@ const Input = styled.input`
 `;
 
 const Row = styled.div`
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: ${({ theme }) => theme.spacings.sm};
 `;
 

@@ -1,56 +1,49 @@
 "use client";
 
+import * as React from "react";
+
 import Container from "@/shared/ui/common/Container";
 import SectionHead from "@/shared/ui/sections/SectionHead";
-import CardGrid from "@/shared/ui/sections/CardGrid";
-import { Card, CardHeader, CardIcon, CardTitle, CardBody, CardActions, CardLink } from "@/shared/ui/cards/SiteCard";
-import { Code2, Palette, Gauge } from "lucide-react";
+import { Section } from "@/shared/ui/sections/Section";
 
-export default function ServicesSection() {
+import { useResolvedLocale } from "@/i18n/locale";
+import { useUiSection } from "@/i18n/uiDb";
+
+import { useListServicesPublicQuery } from "@/integrations/rtk/endpoints/services.public.endpoints";
+import type { SupportedLocale } from "@/types/common";
+
+import ServicesCarousel from "../features/services/ServicesCarousel";
+
+export default function ServicesSection({
+  locale: localeProp,
+  initialHash,
+}: {
+  locale?: string;
+  initialHash?: string;
+}) {
+  const locale = useResolvedLocale(localeProp as any) as SupportedLocale;
+  const { ui } = useUiSection("ui_services", locale);
+
+  const { data, isLoading } = useListServicesPublicQuery({ locale });
+  const items = data?.items ?? [];
+
+  const lockedItemsRef = React.useRef<typeof items | null>(null);
+  if (!lockedItemsRef.current && items.length) lockedItemsRef.current = items;
+  const lockedItems = lockedItemsRef.current ?? [];
+
+  if (isLoading || !lockedItems.length) return null;
+
   return (
-    <Container>
-      <SectionHead title="Hizmetlerimiz" lead="Web, Tasarım, SEO/Performans." center />
+    <Section density="spacious" id="services">
+      <Container>
+        <SectionHead
+          title={ui("ui_services_title", "Services")}
+          lead={ui("ui_services_lead", "")}
+          center
+        />
 
-      <CardGrid>
-        <Card>
-          <CardHeader>
-            <CardIcon><Code2 size={20} /></CardIcon>
-            <CardTitle>Web Geliştirme</CardTitle>
-          </CardHeader>
-          <CardBody>
-            Kurumsal site, e-ticaret, CMS, entegrasyonlar ve ölçeklenebilir mimariler.
-          </CardBody>
-          <CardActions>
-            <CardLink href={{ pathname: "/tr/services", hash: "web" }}>Detay</CardLink>
-          </CardActions>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardIcon><Palette size={20} /></CardIcon>
-            <CardTitle>Tasarım</CardTitle>
-          </CardHeader>
-          <CardBody>
-            UI/UX, marka kimliği, komponent kütüphanesi ve tasarım sistemleri.
-          </CardBody>
-          <CardActions>
-            <CardLink href={{ pathname: "/tr/services", hash: "design" }}>Detay</CardLink>
-          </CardActions>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardIcon><Gauge size={20} /></CardIcon>
-            <CardTitle>SEO / Performans</CardTitle>
-          </CardHeader>
-          <CardBody>
-            Teknik SEO, Lighthouse 90+, Core Web Vitals ve izleme/raporlama.
-          </CardBody>
-          <CardActions>
-            <CardLink href={{ pathname: "/tr/services", hash: "seo" }}>Detay</CardLink>
-          </CardActions>
-        </Card>
-      </CardGrid>
-    </Container>
+        <ServicesCarousel items={lockedItems} locale={locale} initialHash={initialHash} />
+      </Container>
+    </Section>
   );
 }

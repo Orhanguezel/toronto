@@ -1,27 +1,46 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Route } from "next";
-import { SUPPORTED_LOCALES } from "@/lib/i18n/locales";
+
+import { useResolvedLocale } from "@/i18n/locale";
+import { localizePath } from "@/i18n/url";
+import { useActiveLocales } from "@/i18n/activeLocales";
+import { toRoute } from "@/shared/routing/toRoute";
 
 export default function LocaleSwitcher() {
   const pathname = usePathname() || "/";
+  const sp = useSearchParams();
   const router = useRouter();
-  const parts = pathname.split("/");
-  const current = parts[1] || "en";
+
+  // aktif diller (DB → site_settings.app_locales)
+  const { locales, isLoading } = useActiveLocales();
+
+  // current locale (params.locale + normalize)
+  const current = useResolvedLocale(null);
 
   const switchTo = (l: string) => {
-    const rest = parts.slice(2).filter(Boolean).join("/");
-    const href = (rest ? `/${l}/${rest}` : `/${l}`) as Route;
-    document.cookie = `NEXT_LOCALE=${l}; path=/; max-age=${60 * 60 * 24 * 365}`;
-    router.push(href);
+    // query + hash koru
+    const qs = sp?.toString();
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    const asPath = `${pathname}${qs ? `?${qs}` : ""}${hash || ""}`;
+
+    // /<targetLocale> + rest
+    const hrefStr = localizePath(l as any, asPath);
+
+    // cookie (1 yıl)
+    document.cookie = `NEXT_LOCALE=${encodeURIComponent(l)}; path=/; max-age=${60 * 60 * 24 * 365}`;
+
+    // typed routes güvenli
+    router.push(toRoute(hrefStr, ("/" as Route)));
   };
 
   return (
     <select
       value={current}
       onChange={(e) => switchTo((e.target as HTMLSelectElement).value)}
-      aria-label="Dil seçici"
+      aria-label="Language selector"
+      disabled={isLoading || !locales?.length}
       style={{
         appearance: "none",
         background: "var(--input-bg)",
@@ -32,9 +51,9 @@ export default function LocaleSwitcher() {
         outlineOffset: 2,
       }}
     >
-      {SUPPORTED_LOCALES.map((l) => (
+      {locales.map((l) => (
         <option key={l} value={l}>
-          {l.toUpperCase()}
+          {String(l).toUpperCase()}
         </option>
       ))}
     </select>

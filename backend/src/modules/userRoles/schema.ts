@@ -1,4 +1,7 @@
-// src/modules/userRoles/schema.ts
+// =============================================================
+// FILE: src/modules/userRoles/schema.ts
+// =============================================================
+
 import {
   mysqlTable,
   char,
@@ -9,7 +12,7 @@ import {
   foreignKey,
 } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
-import { users } from "../auth/schema";
+import { users } from "@/modules/auth/schema";
 
 export const userRoles = mysqlTable(
   "user_roles",

@@ -19,6 +19,7 @@ const nextConfig = {
       { protocol: "https", hostname: "**.cloudinary.com" },
       { protocol: "https", hostname: "**.imgix.net" },
       { protocol: "https", hostname: "**.netlify.app" },
+      { protocol: "https", hostname: "images.unsplash.com" },
     ],
   },
 } satisfies NextConfig;

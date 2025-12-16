@@ -1,19 +1,16 @@
+// src/features/contact/ContactForm.tsx
 "use client";
 
 import * as React from "react";
 import styled from "styled-components";
-import { Button } from "@/shared/ui/buttons/Button";
 import { toast } from "sonner";
 
-type Locale = "tr" | "en" | "de";
+import { Button } from "@/shared/ui/buttons/Button";
+import { useResolvedLocale } from "@/i18n/locale";
+import { useUiSection } from "@/i18n/uiDb";
+import type { SupportedLocale } from "@/types/common";
 
-const COPY: Record<Locale, {
-  name: string; email: string; phone: string; msg: string; send: string; ok: string; fail: string;
-}> = {
-  tr: { name: "Ad Soyad", email: "E-posta", phone: "Telefon (ops.)", msg: "Mesajınız", send: "Gönder", ok: "Mesajınız alındı", fail: "Gönderilemedi" },
-  en: { name: "Full Name", email: "Email", phone: "Phone (opt.)", msg: "Your message", send: "Send", ok: "Message received", fail: "Failed to send" },
-  de: { name: "Vollständiger Name", email: "E-Mail", phone: "Telefon (optional)", msg: "Ihre Nachricht", send: "Senden", ok: "Nachricht empfangen", fail: "Senden fehlgeschlagen" },
-};
+import { useCreateContactPublicMutation } from "@/integrations/rtk/endpoints/contacts.endpoints";
 
 const Form = styled.form`
   display: grid;
@@ -21,7 +18,9 @@ const Form = styled.form`
 `;
 
 const Row = styled.div`
-  display: grid; grid-template-columns: 1fr; gap: ${({ theme }) => theme.spacings.xs};
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: ${({ theme }) => theme.spacings.xs};
 `;
 
 const Label = styled.label`
@@ -61,56 +60,104 @@ const Area = styled.textarea`
   }
 `;
 
-export default function ContactForm({ locale }: { locale: Locale }) {
-  const t = COPY[locale] ?? COPY.tr;
+export default function ContactForm({ locale: localeProp }: { locale: string }) {
+  const locale = useResolvedLocale(localeProp) as SupportedLocale;
+
+  // ✅ 30 dil: DB ui_contact + fallback chain
+  const { ui } = useUiSection("ui_contact", locale);
+
+  // ✅ Hard-coded dil dalları YOK.
+  const tName = ui("ui_contact_first_name", "Full Name*");
+  const tEmail = ui("ui_contact_email", "Email*");
+  const tPhone = ui("ui_contact_phone", "Phone (optional)");
+  const tMsg = ui("ui_contact_msg_label", "Your message*"); // bu key yoksa DB’ye ekle
+  const tSend = ui("ui_contact_submit", "Send");
+  const tSending = ui("ui_contact_sending", "Sending...");
+  const tOk = ui("ui_contact_success", "Thanks! Your message has been sent.");
+  const tFail = ui("ui_contact_error_generic", "Failed to send. Please try again.");
+
+  const [createContact, { isLoading: busy }] = useCreateContactPublicMutation();
 
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [message, setMessage] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
 
   const onSubmit: React.FormEventHandler = async (e) => {
     e.preventDefault();
-    if (!name || !email || !message) return;
-    setBusy(true);
+    if (!name.trim() || !email.trim() || !message.trim()) return;
+
     try {
-      const res = await fetch("/api/contact", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, phone, message, locale }),
-      });
-      if (!res.ok) throw new Error("fail");
-      toast.success(t.ok);
-      setName(""); setEmail(""); setPhone(""); setMessage("");
+      await createContact({
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim() ? phone.trim() : undefined,
+        message: message.trim(),
+        locale, // backend kabul ediyorsa
+      }).unwrap();
+
+      toast.success(tOk);
+      setName("");
+      setEmail("");
+      setPhone("");
+      setMessage("");
     } catch {
-      toast.error(t.fail);
-    } finally {
-      setBusy(false);
+      toast.error(tFail);
     }
   };
 
   return (
     <Form onSubmit={onSubmit} noValidate>
       <Row>
-        <Label htmlFor="cf-name">{t.name}</Label>
-        <Input id="cf-name" value={name} onChange={(e)=>setName(e.target.value)} required />
+        <Label htmlFor="cf-name">{tName}</Label>
+        <Input
+          id="cf-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+          disabled={busy}
+        />
       </Row>
+
       <Row>
-        <Label htmlFor="cf-email">{t.email}</Label>
-        <Input id="cf-email" type="email" inputMode="email" autoComplete="email"
-               value={email} onChange={(e)=>setEmail(e.target.value)} required />
+        <Label htmlFor="cf-email">{tEmail}</Label>
+        <Input
+          id="cf-email"
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          disabled={busy}
+        />
       </Row>
+
       <Row>
-        <Label htmlFor="cf-phone">{t.phone}</Label>
-        <Input id="cf-phone" value={phone} onChange={(e)=>setPhone(e.target.value)} />
+        <Label htmlFor="cf-phone">{tPhone}</Label>
+        <Input
+          id="cf-phone"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          disabled={busy}
+        />
       </Row>
+
       <Row>
-        <Label htmlFor="cf-msg">{t.msg}</Label>
-        <Area id="cf-msg" value={message} onChange={(e)=>setMessage(e.target.value)} required />
+        <Label htmlFor="cf-msg">{tMsg}</Label>
+        <Area
+          id="cf-msg"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          required
+          disabled={busy}
+        />
       </Row>
+
       <div style={{ display: "grid", justifyContent: "end" }}>
-        <Button type="submit" disabled={busy}>{t.send}</Button>
+        <Button type="submit" disabled={busy}>
+          {busy ? tSending : tSend}
+        </Button>
       </div>
     </Form>
   );

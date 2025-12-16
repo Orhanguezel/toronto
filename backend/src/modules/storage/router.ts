@@ -1,3 +1,6 @@
+// =============================================================
+// FILE: src/modules/storage/router.ts
+// =============================================================
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "@/common/middleware/auth";
 import {
@@ -6,34 +9,39 @@ import {
   signPut,
   signMultipart,
 } from "./controller";
-
-const BASE = "/storage";
+import type { SignPutBody, SignMultipartBody } from "./validation";
 
 export async function registerStorage(app: FastifyInstance) {
-  // provider URL'ye yönlendiren public CDN benzeri uç
+  const BASE = "/storage";
+
+  // Public GET/HEAD: /storage/:bucket/*  → provider/local URL'ye 302 redirect
   app.get<{ Params: { bucket: string; "*": string } }>(
     `${BASE}/:bucket/*`,
     { config: { public: true } },
-    publicServe
+    publicServe,
   );
 
-  // server-side upload (FormData)
-  app.post<{ Params: { bucket: string }; Querystring: { path?: string; upsert?: string } }>(
+  // Server-side upload (FormData) — auth zorunlu
+  app.post<{
+    Params: { bucket: string };
+    Querystring: { path?: string; upsert?: "0" | "1" | string };
+  }>(
     `${BASE}/:bucket/upload`,
-    { preHandler: [requireAuth] }, // public değil; token gerekiyor
-    uploadToBucket
+    { preHandler: [requireAuth] },
+    uploadToBucket,
   );
 
-  // imza uçları
-  app.post(
+  // S3 için sign-put — şu an kapalı
+  app.post<{ Body: SignPutBody }>(
     `${BASE}/uploads/sign-put`,
     { preHandler: [requireAuth] },
-    signPut
+    signPut,
   );
 
-  app.post(
+  // Cloudinary unsigned upload için imzalı form alanları
+  app.post<{ Body: SignMultipartBody }>(
     `${BASE}/uploads/sign-multipart`,
     { preHandler: [requireAuth] },
-    signMultipart
+    signMultipart,
   );
 }

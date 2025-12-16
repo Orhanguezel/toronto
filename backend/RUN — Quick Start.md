@@ -8,7 +8,7 @@ ADMIN_EMAIL="admin@site.com" ADMIN_PASSWORD="SüperGizli!" bun run db:seed
 ALLOW_DROP=true bun run db:seed
 
 
-cd /var/www/productsPark/backend
+cd /var/www/ensotek/backend
 
 rm -rf dist .tsbuildinfo
 bun run build
@@ -26,8 +26,8 @@ git push origin main
 
 
 
--- 1. Yeni veritabanını oluştur (örnek: mezartasi)
-CREATE DATABASE `toronto` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- 1. Yeni veritabanını oluştur (örnek: ensotek)
+CREATE DATABASE `ensotek` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- 2. Uygulama kullanıcısını oluştur / şifresini ayarla
 -- (hem localhost hem 127.0.0.1 hem de istersen % için)
@@ -36,9 +36,9 @@ CREATE USER IF NOT EXISTS 'app'@'127.0.0.1' IDENTIFIED BY 'app';
 CREATE USER IF NOT EXISTS 'app'@'%' IDENTIFIED BY 'app';
 
 -- 3. Yetkileri ver
-GRANT ALL PRIVILEGES ON `toronto`.* TO 'app'@'localhost';
-GRANT ALL PRIVILEGES ON `toronto`.* TO 'app'@'127.0.0.1';
-GRANT ALL PRIVILEGES ON `toronto`.* TO 'app'@'%';
+GRANT ALL PRIVILEGES ON `ensotek`.* TO 'app'@'localhost';
+GRANT ALL PRIVILEGES ON `ensotek`.* TO 'app'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON `ensotek`.* TO 'app'@'%';
 
 FLUSH PRIVILEGES;
 
@@ -59,7 +59,7 @@ NODE_ENV=production ALLOW_DROP=true bun run db:seed
 pm2 flush
 
 
-cd /var/www/productsPark
+cd /var/www/ensotek
 git fetch --prune
 git reset --hard origin/main
 
@@ -70,7 +70,7 @@ bun run build
 pm2 reload ecosystem.config.cjs --env production
 
 # gerekirse log izle
-pm2 logs productspark-backend --lines 100
+pm2 logs ensotek-backend --lines 100
 
 ```
 

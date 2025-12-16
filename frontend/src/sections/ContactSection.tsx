@@ -1,19 +1,19 @@
 // src/sections/ContactSection.tsx
 "use client";
 
+import * as React from "react";
+import styled from "styled-components";
+
 import Container from "@/shared/ui/common/Container";
 import SectionHead from "@/shared/ui/sections/SectionHead";
+import { Section } from "@/shared/ui/sections/Section";
 import { Card } from "@/shared/ui/cards/SiteCard";
-import styled from "styled-components";
-import ContactForm from "@/features/contact/ContactForm"; // ← DÜZELTİLDİ
 
-type Locale = "tr" | "en" | "de" | string;
+import ContactForm from "@/features/contact/ContactForm";
 
-const COPY: Record<string, { title: string; lead: string }> = {
-  tr: { title: "İletişim", lead: "Formu doldurun, en kısa sürede dönüş yapalım." },
-  en: { title: "Contact", lead: "Fill the form and we’ll get back to you." },
-  de: { title: "Kontakt", lead: "Formular ausfüllen, wir melden uns schnell." },
-};
+import { useResolvedLocale } from "@/i18n/locale";
+import { useUiSection } from "@/i18n/uiDb";
+import type { SupportedLocale } from "@/types/common";
 
 const FormWrap = styled.div`
   display: grid;
@@ -26,17 +26,29 @@ const FormCard = styled(Card)`
   box-shadow: ${({ theme }) => theme.shadows.form};
 `;
 
-export default function ContactSection({ locale }: { locale: Locale }) {
-  const t = COPY[locale] ?? COPY.tr;
+type Props = {
+  locale?: string;
+};
+
+export default function ContactSection({ locale: localeProp }: Props) {
+  const locale = useResolvedLocale(localeProp as any) as SupportedLocale;
+  const { ui } = useUiSection("ui_contact", locale);
+
+  const title = ui("ui_contact_title", "Contact");
+  const lead = ui("ui_contact_lead", "Fill the form and we’ll get back to you.");
+  const aria = ui("ui_contact_aria", title);
 
   return (
-    <Container>
-      <SectionHead title={t.title} lead={t.lead} center />
-      <FormWrap>
-        <FormCard aria-label="İletişim Formu">
-          <ContactForm locale={(locale as "tr"|"en"|"de") ?? "tr"} />
-        </FormCard>
-      </FormWrap>
-    </Container>
+    <Section density="spacious" id="contact" aria-label={aria}>
+      <Container>
+        <SectionHead title={title} lead={lead} center />
+
+        <FormWrap>
+          <FormCard aria-label={aria}>
+            <ContactForm locale={locale as any} />
+          </FormCard>
+        </FormWrap>
+      </Container>
+    </Section>
   );
 }

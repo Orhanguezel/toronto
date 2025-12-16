@@ -1,443 +1,757 @@
+// =============================================================
+// FILE: src/modules/storage/admin.controller.ts
+// =============================================================
 import type { RouteHandler } from "fastify";
-import { and, asc, desc, eq, like, sql as dsql } from "drizzle-orm";
-import { alias } from "drizzle-orm/mysql-core";
 import { randomUUID } from "node:crypto";
-import { db } from "@/db/client";
-import { LOCALES, DEFAULT_LOCALE } from "@/core/i18n";
-import {
-  storageAssets,
-  storageAssetsI18n,
-  type NewStorageAssetI18n,
-} from "./schema";
+import { v2 as cloudinary } from "cloudinary";
+import type { MultipartFile, MultipartValue } from "@fastify/multipart";
+import { sql as dsql } from "drizzle-orm";
+
 import {
   storageListQuerySchema,
-  type StorageListQuery,
   storageUpdateSchema,
+  type StorageListQuery,
   type StorageUpdateInput,
-  patchAssetI18nBodySchema,
-  type PatchAssetI18nBody,
 } from "./validation";
+
 import {
   getCloudinaryConfig,
   uploadBufferAuto,
   destroyCloudinaryById,
   renameCloudinaryPublicId,
+  type UploadResult,
 } from "./cloudinary";
-import type { MultipartFile, MultipartValue } from "@fastify/multipart";
 
-/* -------------------------------- helpers -------------------------------- */
+import {
+  normalizeFolder,
+  omitNullish,
+  publicUrlOf,
+} from "./_util";
 
-const ORDER = {
-  created_at: storageAssets.created_at,
-  name: storageAssets.name,
-  size: storageAssets.size,
-} as const;
+import {
+  listAndCount,
+  getById,
+  getByBucketPath,
+  getByIds,
+  insert as repoInsert,
+  updateById as repoUpdateById,
+  deleteById as repoDeleteById,
+  deleteManyByIds as repoDeleteManyByIds,
+  isDup,
+  listFolders,
+} from "./repository";
 
-function parseOrder(q: StorageListQuery) {
-  const sort = q.sort ?? "created_at";
-  const order = q.order ?? "desc";
-  const col = ORDER[sort] ?? storageAssets.created_at;
-  const primary = order === "asc" ? asc(col) : desc(col);
-  return { primary };
-}
+/* --------------------------------- utils ---------------------------------- */
 
-async function getAssetById(id: string) {
-  const rows = await db.select().from(storageAssets).where(eq(storageAssets.id, id)).limit(1);
-  return rows[0] ?? null;
-}
+/** Dosya adı sanitize */
+const sanitizeName = (name: string) => name.replace(/[^\w.\-]+/g, "_");
 
-/** i18n upsert helper (tek locale) — pure */
-async function upsertAssetI18n(
-  assetId: string,
-  locale: string,
-  data: Partial<Pick<NewStorageAssetI18n, "title" | "alt" | "caption" | "description">> & { id?: string }
-) {
-  const insertVals: NewStorageAssetI18n = {
-    id: data.id ?? randomUUID(),
-    asset_id: assetId,
-    locale,
-    title: typeof data.title === "undefined" ? (null as any) : (data.title ?? null),
-    alt: typeof data.alt === "undefined" ? (null as any) : (data.alt ?? null),
-    caption: typeof data.caption === "undefined" ? (null as any) : (data.caption ?? null),
-    description: typeof data.description === "undefined" ? (null as any) : (data.description ?? null),
-    created_at: new Date() as any,
-    updated_at: new Date() as any,
-  };
+/** Per-request upload log base (user + ip + ua) */
+function makeUploadLogBase(req: any) {
+  const user = req?.user as { id?: string } | undefined;
+  const xff = req?.headers?.["x-forwarded-for"];
+  const ip =
+    (typeof xff === "string" && xff.split(",")[0].trim()) ||
+    req?.ip ||
+    undefined;
+  const uaRaw = req?.headers?.["user-agent"];
+  const ua =
+    typeof uaRaw === "string"
+      ? uaRaw
+      : Array.isArray(uaRaw)
+        ? uaRaw.join(",")
+        : undefined;
 
-  const setObj: Record<string, any> = {};
-  if (typeof data.title !== "undefined") setObj.title = data.title ?? null;
-  if (typeof data.alt !== "undefined") setObj.alt = data.alt ?? null;
-  if (typeof data.caption !== "undefined") setObj.caption = data.caption ?? null;
-  if (typeof data.description !== "undefined") setObj.description = data.description ?? null;
-  setObj.updated_at = new Date();
-
-  if (Object.keys(setObj).length === 1) return;
-  await db.insert(storageAssetsI18n).values(insertVals).onDuplicateKeyUpdate({ set: setObj });
-}
-
-/** Aynı i18n içeriğini tüm dillere yaz */
-async function upsertAssetI18nAllLocales(
-  assetId: string,
-  data: Partial<Pick<NewStorageAssetI18n, "title" | "alt" | "caption" | "description">>,
-  locales: readonly string[] = LOCALES
-) {
-  for (const l of locales) {
-    await upsertAssetI18n(assetId, l, data);
-  }
-}
-
-/* ------------------------------- merged select ------------------------------ */
-
-type AssetMerged = {
-  id: string;
-  name: string;
-  bucket: string;
-  path: string;
-  folder: string | null;
-  mime: string;
-  size: number;
-  width: number | null;
-  height: number | null;
-  url: string | null;
-  provider: string;
-  provider_public_id: string | null;
-  provider_resource_type: string | null;
-  provider_format: string | null;
-  provider_version: number | null;
-  metadata: Record<string, string> | null;
-  created_at: string | Date;
-  updated_at: string | Date;
-
-  // i18n (coalesced)
-  title: string | null;
-  alt: string | null;
-  caption: string | null;
-  description: string | null;
-  locale_resolved: string | null;
-};
-
-function baseSelect(i18nReq: any, i18nDef: any) {
   return {
-    id: storageAssets.id,
-    name: storageAssets.name,
-    bucket: storageAssets.bucket,
-    path: storageAssets.path,
-    folder: storageAssets.folder,
-    mime: storageAssets.mime,
-    size: storageAssets.size,
-    width: storageAssets.width,
-    height: storageAssets.height,
-    url: storageAssets.url,
-    provider: storageAssets.provider,
-    provider_public_id: storageAssets.provider_public_id,
-    provider_resource_type: storageAssets.provider_resource_type,
-    provider_format: storageAssets.provider_format,
-    provider_version: storageAssets.provider_version,
-    metadata: storageAssets.metadata,
-    created_at: storageAssets.created_at,
-    updated_at: storageAssets.updated_at,
-
-    title: dsql<string>`COALESCE(${i18nReq.title}, ${i18nDef.title})`.as("title"),
-    alt: dsql<string>`COALESCE(${i18nReq.alt}, ${i18nDef.alt})`.as("alt"),
-    caption: dsql<string>`COALESCE(${i18nReq.caption}, ${i18nDef.caption})`.as("caption"),
-    description: dsql<string>`COALESCE(${i18nReq.description}, ${i18nDef.description})`.as("description"),
-    locale_resolved: dsql<string>`
-      CASE WHEN ${i18nReq.id} IS NOT NULL THEN ${i18nReq.locale} ELSE ${i18nDef.locale} END
-    `.as("locale_resolved"),
+    where: "storage_upload",
+    user_id: user?.id ? String(user.id) : null,
+    ip,
+    ua,
   };
 }
 
-/** PURE: merged asset seçimi */
-async function selectMergedAsset(id: string, locale: string, defLocale: string) {
-  const iReq = alias(storageAssetsI18n, "sai_req");
-  const iDef = alias(storageAssetsI18n, "sai_def");
+/* ---------------------------------- ADMIN ---------------------------------- */
 
-  const rows = await db
-    .select(baseSelect(iReq, iDef))
-    .from(storageAssets)
-    .leftJoin(iReq, and(eq(iReq.asset_id, storageAssets.id), eq(iReq.locale, locale)))
-    .leftJoin(iDef, and(eq(iDef.asset_id, storageAssets.id), eq(iDef.locale, defLocale)))
-    .where(eq(storageAssets.id, id))
-    .limit(1);
-
-  return (rows[0] ?? null) as unknown as AssetMerged | null;
-}
-
-/* ---------------------------------- LIST ----------------------------------- */
-
-export const adminListAssets: RouteHandler<{ Querystring: unknown }> = async (req, reply) => {
+/** GET /admin/storage/assets */
+export const adminListAssets: RouteHandler<{ Querystring: unknown }> = async (
+  req,
+  reply,
+) => {
   const parsed = storageListQuerySchema.safeParse(req.query);
   if (!parsed.success) {
-    return reply.code(400).send({ error: { message: "invalid_query", issues: parsed.error.flatten() } });
+    return reply.code(400).send({
+      error: {
+        message: "invalid_query",
+        issues: parsed.error.flatten(),
+      },
+    });
   }
-  const q = parsed.data;
-  const locale = (req as any).locale ?? DEFAULT_LOCALE;
-  const def = DEFAULT_LOCALE;
 
-  const iReq = alias(storageAssetsI18n, "sai_req");
-  const iDef = alias(storageAssetsI18n, "sai_def");
-
-  const where =
-    and(
-      q.bucket ? eq(storageAssets.bucket, q.bucket) : dsql`1=1`,
-      q.folder != null ? eq(storageAssets.folder, q.folder) : dsql`1=1`,
-      q.mime ? like(storageAssets.mime, `${q.mime}%`) : dsql`1=1`,
-      q.q
-        ? dsql`(
-            ${storageAssets.name} LIKE ${'%' + q.q + '%'}
-            OR COALESCE(${iReq.title}, ${iDef.title}) LIKE ${'%' + q.q + '%'}
-            OR COALESCE(${iReq.caption}, ${iDef.caption}) LIKE ${'%' + q.q + '%'}
-            OR COALESCE(${iReq.description}, ${iDef.description}) LIKE ${'%' + q.q + '%'}
-          )`
-        : dsql`1=1`,
-    );
-
-  const [{ total }] = await db
-    .select({ total: dsql<number>`COUNT(1)` })
-    .from(storageAssets)
-    .leftJoin(iReq, and(eq(iReq.asset_id, storageAssets.id), eq(iReq.locale, locale)))
-    .leftJoin(iDef, and(eq(iDef.asset_id, storageAssets.id), eq(iDef.locale, def)))
-    .where(where);
-
-  const { primary } = parseOrder(q);
-  const rows = await db
-    .select(baseSelect(iReq, iDef))
-    .from(storageAssets)
-    .leftJoin(iReq, and(eq(iReq.asset_id, storageAssets.id), eq(iReq.locale, locale)))
-    .leftJoin(iDef, and(eq(iDef.asset_id, storageAssets.id), eq(iDef.locale, def)))
-    .where(where)
-    .orderBy(primary)
-    .limit(q.limit)
-    .offset(q.offset);
+  const q = parsed.data as StorageListQuery;
+  const { rows, total } = await listAndCount(q);
 
   reply.header("x-total-count", String(total));
   reply.header("content-range", `*/${total}`);
-  reply.header("access-control-expose-headers", "x-total-count, content-range");
-  return reply.send(rows as unknown as AssetMerged[]);
+  reply.header(
+    "access-control-expose-headers",
+    "x-total-count, content-range",
+  );
+
+  return reply.send(rows);
 };
 
-/* ---------------------------------- GET ------------------------------------ */
-
-export const adminGetAsset: RouteHandler<{ Params: { id: string } }> = async (req, reply) => {
-  const row = await getAssetById(req.params.id);
+/** GET /admin/storage/assets/:id */
+export const adminGetAsset: RouteHandler<{ Params: { id: string } }> = async (
+  req,
+  reply,
+) => {
+  const row = await getById(req.params.id);
   if (!row) return reply.code(404).send({ error: { message: "not_found" } });
-  return reply.send(row);
+
+  return reply.send({
+    ...row,
+    url: publicUrlOf(row.bucket, row.path, row.url),
+  });
 };
 
-export const adminGetAssetMerged: RouteHandler<{ Params: { id: string } }> = async (req, reply) => {
-  const locale = (req as any).locale ?? DEFAULT_LOCALE;
-  const def = DEFAULT_LOCALE;
-  const row = await selectMergedAsset(req.params.id, locale, def);
-  if (!row) return reply.code(404).send({ error: { message: "not_found" } });
-  return reply.send(row);
-};
-
-/* -------------------------------- CREATE ----------------------------------- */
-
+/** POST /admin/storage/assets (multipart single file) */
 export const adminCreateAsset: RouteHandler = async (req, reply) => {
-  const cfg = getCloudinaryConfig();
-  if (!cfg) return reply.code(501).send({ message: "cloudinary_not_configured" });
+  const cfg = await getCloudinaryConfig();
+  const baseLog = makeUploadLogBase(req);
+
+  if (!cfg) {
+    req.log.error(
+      { ...baseLog },
+      "storage upload: storage_not_configured (no cfg)",
+    );
+    return reply.code(501).send({
+      message: "storage_not_configured",
+      reason: "no_config_or_missing_keys",
+    });
+  }
 
   const mp: MultipartFile | undefined = await (req as any).file();
-  if (!mp) return reply.code(400).send({ message: "file_required" });
+  if (!mp) {
+    req.log.warn(
+      { ...baseLog },
+      "storage upload: no file in multipart request",
+    );
+    return reply.code(400).send({ message: "file_required" });
+  }
+
   const buf = await mp.toBuffer();
 
   const fields = mp.fields as Record<string, MultipartValue>;
-  const s = (k: string): string | undefined => (fields[k] ? String(fields[k].value) : undefined);
+  const s = (k: string): string | undefined =>
+    fields[k] ? String(fields[k].value) : undefined;
 
   const bucket = s("bucket") ?? "default";
-  const folder = s("folder") ?? undefined;
+  const folderRaw = s("folder") ?? cfg.defaultFolder ?? null;
+  const folder = normalizeFolder(folderRaw) ?? undefined;
 
-  const cleanName = (mp.filename || "file").replace(/[^\w.\-]+/g, "_");
+  let metadata: Record<string, string> | null = null;
+  const metaRaw = s("metadata");
+  if (metaRaw) {
+    try {
+      metadata = JSON.parse(metaRaw) as Record<string, string>;
+    } catch {
+      metadata = null;
+    }
+  }
+
+  const cleanName = sanitizeName(mp.filename || "file");
   const publicIdBase = cleanName.replace(/\.[^.]+$/, "");
 
-  const up = await uploadBufferAuto(cfg, buf, { folder, publicId: publicIdBase, mime: mp.mimetype }, true);
+  const fileLog = {
+    ...baseLog,
+    action: "single_upload",
+    driver: cfg.driver,
+    cloud: cfg.cloudName,
+    filename: cleanName,
+    fieldname: mp.fieldname,
+    mimetype: mp.mimetype,
+    bytes: buf.length,
+    bucket,
+    folder,
+  };
 
+  req.log.info(
+    fileLog,
+    "storage upload: file received, starting provider upload",
+  );
+
+  // 1) Upload (Cloudinary veya local)
+  let up: UploadResult;
+  try {
+    up = await uploadBufferAuto(cfg, buf, {
+      folder,
+      publicId: publicIdBase,
+      mime: mp.mimetype,
+    });
+  } catch (e) {
+    const err = e as {
+      http_code?: number;
+      name?: string;
+      message?: string;
+      error?: unknown;
+      response?: unknown;
+    };
+
+    req.log.error(
+      {
+        ...fileLog,
+        err_name: err?.name,
+        err_msg: err?.message,
+        http_code: err?.http_code,
+        cld_error: err?.error ?? err?.response ?? null,
+      },
+      "storage upload: provider upload failed",
+    );
+
+    const http = Number(err?.http_code) || 502;
+    return reply
+      .code(http >= 400 && http < 500 ? http : 502)
+      .send({
+        error: {
+          where: "cloudinary_upload",
+          name: err?.name,
+          message: err?.message,
+          http_code: err?.http_code,
+          cld_error: err?.error || err?.response || null,
+        },
+      });
+  }
+
+  req.log.info(
+    {
+      ...fileLog,
+      provider_public_id: up.public_id,
+      provider_url: up.secure_url,
+      provider_bytes: up.bytes,
+      provider_format: up.format,
+      provider_resource_type: up.resource_type,
+    },
+    "storage upload: provider upload succeeded",
+  );
+
+  // 2) DB INSERT
   const path = folder ? `${folder}/${cleanName}` : cleanName;
-  const id = randomUUID();
-  const now = new Date();
+  const size = typeof up.bytes === "number" ? up.bytes : buf.length;
+  const width = typeof up.width === "number" ? up.width : null;
+  const height = typeof up.height === "number" ? up.height : null;
+  const etagRaw = up.etag ?? null;
+  const etag = typeof etagRaw === "string" ? etagRaw.slice(0, 64) : null;
 
-  await db.insert(storageAssets).values({
-    id,
+  const provider_resource_type = (up.resource_type || "image") as string;
+  const provider_format = (up.format || null) as string | null;
+  const provider_version = typeof up.version === "number" ? up.version : null;
+
+  const recId = randomUUID();
+  const provider = cfg.driver === "local" ? "local" : "cloudinary";
+
+  const recBase = {
+    id: recId,
     user_id: (req as any).user?.id ? String((req as any).user.id) : null,
     name: cleanName,
     bucket,
     path,
     folder: folder ?? null,
     mime: mp.mimetype,
-    size: up.bytes,
-    width: up.width ?? null,
-    height: up.height ?? null,
-    url: up.secure_url,
-    hash: up.etag ?? null,
-    etag: up.etag ?? null,
-    provider: "cloudinary",
+    size,
+    width,
+    height,
+    url: up.secure_url || null,
+    hash: etag,
+    etag,
+    provider,
     provider_public_id: up.public_id ?? null,
-    provider_resource_type: up.resource_type ?? null,
-    provider_format: up.format ?? null,
-    provider_version: typeof up.version === "number" ? up.version : null,
-    metadata: (() => {
-      const raw = s("metadata");
-      if (!raw) return null;
-      try { return JSON.parse(raw) as Record<string, string>; } catch { return null; }
-    })(),
-    created_at: now as any,
-    updated_at: now as any,
-  });
+    provider_resource_type,
+    provider_format,
+    provider_version,
+    metadata,
+  };
 
-  // Opsiyonel i18n alanları
-  const locale = s("locale") || (req as any).locale || DEFAULT_LOCALE;
-  const title = s("title");
-  const alt = s("alt");
-  const caption = s("caption");
-  const description = s("description");
-
-  // create sırasında tüm dillere çoğaltma (default: true)
-  const replicateAllRaw = s("replicate_all_locales");
-  const replicateAll =
-    typeof replicateAllRaw === "string"
-      ? ["1", "true", "on", "yes"].includes(replicateAllRaw.toLowerCase())
-      : true;
-
-  if (title || alt || caption || description) {
-    const payload = {
-      title: title?.trim(),
-      alt: alt?.trim(),
-      caption: caption?.trim(),
-      description: description?.trim(),
+  try {
+    await repoInsert(omitNullish(recBase));
+    req.log.info(
+      {
+        ...fileLog,
+        rec_id: recId,
+        db_path: path,
+        db_bucket: bucket,
+      },
+      "storage upload: db insert succeeded",
+    );
+  } catch (e) {
+    const err = e as {
+      message?: string;
+      code?: string;
+      errno?: string;
+      cause?: unknown;
     };
-    if (replicateAll) {
-      await upsertAssetI18nAllLocales(id, payload);
-    } else {
-      await upsertAssetI18n(id, locale, payload);
+
+    if (isDup(err)) {
+      const existing = await getByBucketPath(bucket, path);
+      if (existing) {
+        req.log.warn(
+          {
+            ...fileLog,
+            rec_id: existing.id,
+          },
+          "storage upload: duplicate key, returning existing row",
+        );
+        return reply.code(200).send({
+          ...existing,
+          url: publicUrlOf(existing.bucket, existing.path, existing.url),
+          created_at: existing.created_at,
+          updated_at: existing.updated_at,
+        });
+      }
     }
+
+    req.log.error(
+      {
+        ...fileLog,
+        db_err_msg: err?.message,
+        db_code: err?.code ?? err?.errno ?? null,
+        db_cause: err?.cause ?? null,
+      },
+      "storage upload: db insert failed",
+    );
+
+    return reply.code(502).send({
+      error: {
+        where: "db_insert",
+        message: err?.message || "db_insert_failed",
+        code: err?.code || err?.errno || null,
+        cause: err?.cause || null,
+      },
+    });
   }
 
-  return reply.code(201).send(await getAssetById(id));
+  const nowIso = new Date().toISOString();
+
+  return reply.code(201).send({
+    ...recBase,
+    url: publicUrlOf(recBase.bucket, recBase.path, recBase.url),
+    created_at: nowIso,
+    updated_at: nowIso,
+  });
 };
 
-/* --------------------------------- PATCH ----------------------------------- */
-
-export const adminPatchAsset: RouteHandler<{ Params: { id: string }; Body: StorageUpdateInput }> = async (req, reply) => {
+/** PATCH /admin/storage/assets/:id (rename folder/name + metadata) */
+export const adminPatchAsset: RouteHandler<{
+  Params: { id: string };
+  Body: StorageUpdateInput;
+}> = async (req, reply) => {
   const parsed = storageUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
-    return reply.code(400).send({ error: { message: "invalid_body", issues: parsed.error.flatten() } });
+    return reply.code(400).send({
+      error: {
+        message: "invalid_body",
+        issues: parsed.error.flatten(),
+      },
+    });
   }
-
   const patch = parsed.data;
-  const cur = await getAssetById(req.params.id);
+
+  const cur = await getById(req.params.id);
   if (!cur) return reply.code(404).send({ error: { message: "not_found" } });
 
-  const sets: Record<string, unknown> = { updated_at: dsql`CURRENT_TIMESTAMP(3)` };
+  const targetFolder =
+    typeof patch.folder !== "undefined"
+      ? normalizeFolder(patch.folder)
+      : cur.folder ?? null;
 
-  if (patch.name !== undefined) sets.name = patch.name;
+  const targetName =
+    typeof patch.name !== "undefined" ? sanitizeName(patch.name) : cur.name;
 
-  if (patch.folder !== undefined) {
+  const folderChanged = targetFolder !== (cur.folder ?? null);
+  const nameChanged = targetName !== cur.name;
+
+  const sets: Record<string, unknown> = {
+    updated_at: dsql`CURRENT_TIMESTAMP(3)`,
+  };
+
+  if (folderChanged || nameChanged) {
     if (cur.provider_public_id) {
-      const baseName = (cur.provider_public_id.split("/").pop() || cur.name).replace(/^\//, "");
-      const newPublicId = patch.folder ? `${patch.folder}/${baseName}` : baseName;
+      const baseName = targetName.replace(/^\//, "").replace(/\.[^.]+$/, "");
+      const newPublicId = targetFolder
+        ? `${targetFolder}/${baseName}`
+        : baseName;
 
       const renamed = await renameCloudinaryPublicId(
         cur.provider_public_id,
         newPublicId,
-        cur.provider_resource_type || "image"
+        cur.provider_resource_type || "image",
+        cur.provider || undefined,
       );
 
-      sets.folder = patch.folder;
-      sets.path = patch.folder ? `${patch.folder}/${cur.name}` : cur.name;
+      sets.name = targetName;
+      sets.folder = targetFolder;
+      sets.path = targetFolder ? `${targetFolder}/${targetName}` : targetName;
       sets.provider_public_id = renamed.public_id ?? newPublicId;
       sets.url = renamed.secure_url ?? cur.url;
-      sets.provider_version = typeof renamed.version === "number" ? renamed.version : cur.provider_version;
+      sets.provider_version =
+        typeof renamed.version === "number"
+          ? renamed.version
+          : cur.provider_version;
       sets.provider_format = renamed.format ?? cur.provider_format;
     } else {
-      const baseName = cur.path.split("/").pop()!;
-      sets.folder = patch.folder;
-      sets.path = patch.folder ? `${patch.folder}/${baseName}` : baseName;
+      // sadece DB tarafı rename
+      sets.name = targetName;
+      sets.folder = targetFolder;
+      sets.path = targetFolder ? `${targetFolder}/${targetName}` : targetName;
     }
+  } else {
+    if (typeof patch.name !== "undefined") sets.name = targetName;
+    if (typeof patch.folder !== "undefined") sets.folder = targetFolder;
   }
 
-  if (patch.metadata !== undefined) sets.metadata = patch.metadata;
+  if (typeof patch.metadata !== "undefined") {
+    sets.metadata = patch.metadata ?? null;
+  }
 
-  await db.update(storageAssets).set(sets).where(eq(storageAssets.id, req.params.id));
-  const fresh = await getAssetById(req.params.id);
+  await repoUpdateById(req.params.id, sets);
+  const fresh = await getById(req.params.id);
   if (!fresh) return reply.code(404).send({ error: { message: "not_found" } });
 
-  return reply.send(fresh);
+  return reply.send({
+    ...fresh,
+    url: publicUrlOf(fresh.bucket, fresh.path, fresh.url),
+  });
 };
 
-/* --------------------------------- i18n PATCH -------------------------------- */
-
-export const adminPatchAssetI18n: RouteHandler<{ Params: { id: string }; Body: PatchAssetI18nBody }> = async (req, reply) => {
-  const parsed = patchAssetI18nBodySchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    return reply.code(400).send({ error: { message: "invalid_body", issues: parsed.error.flatten() } });
-  }
-  const b = parsed.data;
-  const cur = await getAssetById(req.params.id);
-  if (!cur) return reply.code(404).send({ error: { message: "not_found" } });
-
-  const locale = b.locale ?? (req as any).locale ?? DEFAULT_LOCALE;
-
-  if (b.apply_all_locales) {
-    await upsertAssetI18nAllLocales(req.params.id, {
-      title: typeof b.title !== "undefined" ? (b.title ?? null) : undefined,
-      alt: typeof b.alt !== "undefined" ? (b.alt ?? null) : undefined,
-      caption: typeof b.caption !== "undefined" ? (b.caption ?? null) : undefined,
-      description: typeof b.description !== "undefined" ? (b.description ?? null) : undefined,
-    });
-  } else {
-    await upsertAssetI18n(req.params.id, locale, {
-      title: typeof b.title !== "undefined" ? (b.title ?? null) : undefined,
-      alt: typeof b.alt !== "undefined" ? (b.alt ?? null) : undefined,
-      caption: typeof b.caption !== "undefined" ? (b.caption ?? null) : undefined,
-      description: typeof b.description !== "undefined" ? (b.description ?? null) : undefined,
-    });
-  }
-
-  const def = DEFAULT_LOCALE;
-  const merged = await selectMergedAsset(req.params.id, locale, def);
-  if (!merged) return reply.code(404).send({ error: { message: "not_found" } });
-  return reply.send(merged);
-};
-
-/* --------------------------------- DELETE ---------------------------------- */
-
-export const adminDeleteAsset: RouteHandler<{ Params: { id: string } }> = async (req, reply) => {
-  const row = await getAssetById(req.params.id);
+/** DELETE /admin/storage/assets/:id (Cloudinary + DB) */
+export const adminDeleteAsset: RouteHandler<{
+  Params: { id: string };
+}> = async (req, reply) => {
+  const row = await getById(req.params.id);
   if (!row) return reply.code(404).send({ error: { message: "not_found" } });
+
   try {
     const publicId = row.provider_public_id || row.path.replace(/\.[^.]+$/, "");
-    await destroyCloudinaryById(publicId, row.provider_resource_type || undefined);
-  } catch {}
-  await db.delete(storageAssets).where(eq(storageAssets.id, req.params.id));
+    await destroyCloudinaryById(
+      publicId,
+      row.provider_resource_type || undefined,
+      row.provider || undefined,
+    );
+  } catch {
+    // provider tarafı silinmese bile DB'den silmeye devam
+  }
+
+  await repoDeleteById(req.params.id);
   return reply.code(204).send();
 };
 
-export const adminBulkDelete: RouteHandler<{ Body: { ids: string[] } }> = async (req, reply) => {
-  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
-  let deleted = 0;
-  for (const id of ids) {
-    const row = await getAssetById(id);
-    if (!row) continue;
+/** POST /admin/storage/assets/bulk-delete { ids: string[] } */
+export const adminBulkDelete: RouteHandler<{
+  Body: { ids: string[] };
+}> = async (req, reply) => {
+  const ids = Array.isArray(req.body?.ids)
+    ? req.body.ids.filter(Boolean)
+    : [];
+  if (!ids.length) return reply.send({ deleted: 0 });
+
+  const rows = await getByIds(ids);
+  if (!rows.length) return reply.send({ deleted: 0 });
+
+  for (const r of rows) {
+    const pid = r.provider_public_id || r.path.replace(/\.[^.]+$/, "");
     try {
-      const publicId = row.provider_public_id || row.path.replace(/\.[^.]+$/, "");
-      await destroyCloudinaryById(publicId, row.provider_resource_type || undefined);
-    } catch {}
-    await db.delete(storageAssets).where(eq(storageAssets.id, id));
-    deleted++;
+      await destroyCloudinaryById(
+        pid,
+        r.provider_resource_type || undefined,
+        r.provider || undefined,
+      );
+    } catch {
+      // provider'ı silmesek bile DB'den silmeye devam
+    }
   }
-  return reply.send({ deleted });
+
+  await repoDeleteManyByIds(rows.map((r) => r.id));
+  return reply.send({ deleted: rows.length });
 };
 
-/* --------------------------------- FOLDERS --------------------------------- */
+/** POST /admin/storage/assets/bulk (multipart mixed: fields + files...) */
+export const adminBulkCreateAssets: RouteHandler = async (req, reply) => {
+  const cfg = await getCloudinaryConfig();
+  const baseLog = makeUploadLogBase(req);
 
+  if (!cfg) {
+    req.log.error(
+      { ...baseLog },
+      "storage bulk upload: storage_not_configured (no cfg)",
+    );
+    return reply.code(501).send({
+      message: "storage_not_configured",
+      reason: "no_config_or_missing_keys",
+    });
+  }
+
+  const partsIt =
+    typeof (req as any).parts === "function" ? (req as any).parts() : null;
+  if (!partsIt || typeof partsIt[Symbol.asyncIterator] !== "function") {
+    req.log.warn(
+      { ...baseLog },
+      "storage bulk upload: multipart_required (no parts iterator)",
+    );
+    return reply.code(400).send({ message: "multipart_required" });
+  }
+
+  // Form-level defaults
+  let formBucket: string | undefined;
+  let formFolder: string | null | undefined;
+  let formMeta: Record<string, string> | null = null;
+
+  const out: unknown[] = [];
+
+  for await (const part of partsIt) {
+    if (part.type === "field") {
+      if (part.fieldname === "bucket") formBucket = String(part.value || "");
+      if (part.fieldname === "folder")
+        formFolder = normalizeFolder(String(part.value || ""));
+      if (part.fieldname === "metadata") {
+        try {
+          formMeta = JSON.parse(String(part.value || ""));
+        } catch {
+          formMeta = null;
+        }
+      }
+      continue;
+    }
+
+    if (part.type !== "file") continue;
+
+    const buf = await part.toBuffer();
+    const bucket = formBucket || "default";
+    const folder = formFolder ?? undefined;
+
+    const cleanName = sanitizeName(part.filename || "file");
+    const publicIdBase = cleanName.replace(/\.[^.]+$/, "");
+
+    const fileLog = {
+      ...baseLog,
+      action: "bulk_upload",
+      driver: cfg.driver,
+      cloud: cfg.cloudName,
+      filename: cleanName,
+      fieldname: part.fieldname,
+      mimetype: part.mimetype,
+      bytes: buf.length,
+      bucket,
+      folder,
+    };
+
+    req.log.info(
+      fileLog,
+      "storage bulk upload: file received, starting provider upload",
+    );
+
+    let up: UploadResult;
+    try {
+      up = await uploadBufferAuto(cfg, buf, {
+        folder,
+        publicId: publicIdBase,
+        mime: part.mimetype,
+      });
+    } catch (e) {
+      const err = e as { message?: string; http_code?: number };
+      req.log.error(
+        {
+          ...fileLog,
+          err_msg: err?.message,
+          http_code: err?.http_code ?? null,
+        },
+        "storage bulk upload: provider upload failed",
+      );
+
+      out.push({
+        file: cleanName,
+        error: {
+          where: "cloudinary_upload",
+          message: err?.message,
+          http: err?.http_code ?? null,
+        },
+      });
+      continue;
+    }
+
+    req.log.info(
+      {
+        ...fileLog,
+        provider_public_id: up.public_id,
+        provider_url: up.secure_url,
+        provider_bytes: up.bytes,
+        provider_format: up.format,
+        provider_resource_type: up.resource_type,
+      },
+      "storage bulk upload: provider upload succeeded",
+    );
+
+    const path = folder ? `${folder}/${cleanName}` : cleanName;
+    const recId = randomUUID();
+    const provider = cfg.driver === "local" ? "local" : "cloudinary";
+
+    const recBase = {
+      id: recId,
+      user_id: (req as any).user?.id ? String((req as any).user.id) : null,
+      name: cleanName,
+      bucket,
+      path,
+      folder: folder ?? null,
+      mime: part.mimetype,
+      size: typeof up.bytes === "number" ? up.bytes : buf.length,
+      width: typeof up.width === "number" ? up.width : null,
+      height: typeof up.height === "number" ? up.height : null,
+      url: up.secure_url || null,
+      hash: up.etag ?? null,
+      etag: up.etag ?? null,
+      provider,
+      provider_public_id: up.public_id ?? null,
+      provider_resource_type: (up.resource_type || "image") as string,
+      provider_format: up.format ?? null,
+      provider_version:
+        typeof up.version === "number" ? up.version : null,
+      metadata: formMeta,
+    };
+
+    try {
+      await repoInsert(omitNullish(recBase));
+      req.log.info(
+        {
+          ...fileLog,
+          rec_id: recId,
+          db_path: path,
+          db_bucket: bucket,
+        },
+        "storage bulk upload: db insert succeeded",
+      );
+      out.push({
+        ...recBase,
+        url: publicUrlOf(recBase.bucket, recBase.path, recBase.url),
+      });
+    } catch (e) {
+      const err = e as { message?: string };
+      if (isDup(err)) {
+        const existing = await getByBucketPath(bucket, path);
+        if (existing) {
+          req.log.warn(
+            {
+              ...fileLog,
+              rec_id: existing.id,
+            },
+            "storage bulk upload: duplicate key, returning existing row",
+          );
+          out.push({
+            ...existing,
+            url: publicUrlOf(
+              existing.bucket,
+              existing.path,
+              existing.url,
+            ),
+          });
+          continue;
+        }
+      }
+
+      req.log.error(
+        {
+          ...fileLog,
+          db_err_msg: err?.message ?? null,
+        },
+        "storage bulk upload: db insert failed",
+      );
+
+      out.push({
+        file: cleanName,
+        error: {
+          where: "db_insert",
+          message: err?.message ?? "db_insert_failed",
+        },
+      });
+    }
+  }
+
+  return reply.send({ count: out.length, items: out });
+};
+
+/** GET /admin/storage/folders → string[] */
 export const adminListFolders: RouteHandler = async (_req, reply) => {
-  const rows = await db
-    .select({ folder: storageAssets.folder })
-    .from(storageAssets)
-    .where(dsql`${storageAssets.folder} IS NOT NULL`)
-    .groupBy(storageAssets.folder);
-
-  const folders = rows.map(r => r.folder as string).filter(Boolean);
+  const folders = await listFolders();
   return reply.send(folders);
+};
+
+/** GET /admin/storage/_diag/cloud */
+export const adminDiagCloudinary: RouteHandler = async (req, reply) => {
+  const cfg = await getCloudinaryConfig();
+
+  // config hiç yok veya eksik
+  if (!cfg) {
+    return reply.code(501).send({
+      message: "cloudinary_not_configured",
+      reason: "no_config_or_missing_keys",
+    });
+  }
+
+  // driver local ise (yalnızca local upload aktif)
+  if (cfg.driver === "local") {
+    return reply.code(501).send({
+      message: "cloudinary_not_configured",
+      reason: "driver_is_local",
+      driver: cfg.driver,
+    });
+  }
+
+  try {
+    await (cloudinary as any).api.ping();
+  } catch (e) {
+    const err = e as { name?: string; message?: string; http_code?: number };
+    return reply.code(502).send({
+      step: "api.ping",
+      error: {
+        name: err?.name,
+        msg: err?.message,
+        http: err?.http_code,
+      },
+    });
+  }
+
+  const tiny = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAuMBg/4qQpwAAAAASUVORK5CYII=",
+    "base64",
+  );
+
+  try {
+    const up = await uploadBufferAuto(cfg, tiny, {
+      folder: "diag",
+      publicId: `ping_${Date.now()}`,
+    });
+
+    return reply.send({
+      ok: true,
+      cloud: cfg.cloudName,
+      uploaded: {
+        public_id: up.public_id,
+        secure_url: up.secure_url,
+      },
+    });
+  } catch (e) {
+    const err = e as {
+      name?: string;
+      message?: string;
+      http_code?: number;
+      error?: unknown;
+      response?: unknown;
+    };
+    return reply.code(502).send({
+      step: "uploader.upload",
+      error: {
+        name: err?.name,
+        msg: err?.message,
+        http: err?.http_code,
+        cld: err?.error || err?.response || null,
+      },
+    });
+  }
 };

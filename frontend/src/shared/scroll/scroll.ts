@@ -1,37 +1,42 @@
 // =============================================================
 // FILE: src/shared/scroll/scroll.ts
 // =============================================================
-export type Locale = "tr" | "en" | "de";
+
+import { LOCALE_SET } from "@/i18n/config";
+import type { SupportedLocale } from "@/types/common";
 
 /**
- * Navbar yüksekliğini ölçüp --navbar-h değişkenine yazar.
- * Section bileşenlerinde `scroll-margin-top: calc(var(--navbar-h, 96px) + 24px);`
- * olduğunda, manuel offset'e gerek kalmaz.
+ * Navbar yüksekliğini ölçüp --navbar-h CSS değişkenine yazar.
+ * Scroll hesaplarında tek referans burasıdır.
  */
 export function installNavbarHeightObserver() {
-  if (typeof document === "undefined") return () => {};
+  if (typeof document === "undefined") return () => { };
 
   const root = document.documentElement;
-  const write = (h: number) => root.style.setProperty("--navbar-h", `${Math.round(h)}px`);
 
-  // Varsayılan
+  const write = (h: number) => {
+    root.style.setProperty("--navbar-h", `${Math.round(h)}px`);
+  };
+
+  // Fallback
   write(96);
 
   const el = document.querySelector<HTMLElement>("[data-navbar]");
-  if (!el) return () => {};
+  if (!el) return () => { };
 
-  // İlk frame'de ölç
+  // İlk ölçüm
   const rafId = requestAnimationFrame(() => {
     const h = el.getBoundingClientRect().height || el.offsetHeight || 96;
     write(h);
   });
 
-  // Dinamik değişimler için gözlemle
+  // Dinamik resize
   const ro = new ResizeObserver((entries) => {
     const box = entries[0]?.contentRect;
     const h = box?.height ?? el.offsetHeight ?? 96;
     write(h);
   });
+
   ro.observe(el);
 
   return () => {
@@ -41,54 +46,85 @@ export function installNavbarHeightObserver() {
 }
 
 /**
- * ID'li bir bölüme kaydır.
- * Offset hesabını CSS'teki `scroll-margin-top` yapar.
+ * 🔑 TEK VE DOĞRU SCROLL IMPLEMENTASYONU
+ *
+ * - scrollIntoView YOK
+ * - Navbar offset manuel
+ * - Smooth + reduce-motion uyumlu
+ * - Zıplama yapmaz
  */
-export function scrollToSection(id: string, opts?: { instant?: boolean; block?: ScrollLogicalPosition }) {
+export function scrollToSection(
+  id: string,
+  opts?: { instant?: boolean }
+) {
   if (typeof document === "undefined") return;
+
   const el = document.getElementById(id);
   if (!el) return;
 
-  const prefersReduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-  el.scrollIntoView({
+  const prefersReduced =
+    window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+
+  const navbarH =
+    parseInt(
+      getComputedStyle(document.documentElement)
+        .getPropertyValue("--navbar-h")
+        .replace("px", "")
+    ) || 96;
+
+  const top =
+    el.getBoundingClientRect().top +
+    window.pageYOffset -
+    navbarH -
+    12; // küçük nefes payı
+
+  window.scrollTo({
+    top,
     behavior: opts?.instant || prefersReduced ? "auto" : "smooth",
-    block: opts?.block ?? "start",
   });
 }
 
-/**
- * /tr/services/web  → "web"
- * /tr/services      → "services"
- * /tr/projects      → "projects"
- * /tr               → null  (hero varsayımı üst tarafta yapılabilir)
- */
-export function deriveSectionFromPath(pathname: string, locale: Locale): string | null {
-  // Hash'i at
+/* ------------------------------------------------------------------ */
+/* ------------------------ PATH / SECTION --------------------------- */
+/* ------------------------------------------------------------------ */
+
+/** "/tr/..." gibi path’lerden locale’i güvenli biçimde düşürür. */
+function stripLeadingLocale(pathname: string): string {
   const pathOnly = pathname.split("#")[0] || "/";
+  const parts = pathOnly.replace(/^\/+/, "").split("/"); // ["tr","services","web"]
+  const first = (parts[0] || "").toLowerCase();
 
-  // Locale'i düşür (örn. /tr/....)
-  const withoutLocale = pathOnly.replace(new RegExp(`^/${locale}(?=/|$)`), "") || "/";
-
-  // Kök: scroll yapma (hero'ya bırak)
-  if (withoutLocale === "/" || withoutLocale === "") return null;
-
-  // Çoklu slash temizliği
-  const segs = withoutLocale.split("/").filter(Boolean);
-  const top = segs[0];
-
-  // Bilinen top-level bölümler
-  if (top === "projects") return "projects";
-  if (top === "ad-solutions") return "ad-solutions";
-  if (top === "references") return "references";
-  if (top === "contact") return "contact";
-
-  if (top === "services") {
-    const child = (segs[1] || "").toLowerCase();
-    // Yalnızca tanımlı alt başlıklar geçerli olsun; değilse "services"e indir
-    const allowed = child === "web" || child === "design" || child === "seo";
-    return allowed ? child : "services";
+  if (first && LOCALE_SET.has(first)) {
+    parts.shift();
+    const out = "/" + parts.join("/");
+    return out === "/" ? "/" : out.replace(/\/+$/, "");
   }
 
-  // Tanınmayan rota → hero
+  return pathOnly || "/";
+}
+
+/**
+ * URL → section id türetir
+ * Scroll kararı LandingClient’te verilir
+ */
+export function deriveSectionFromPath(
+  pathname: string,
+  _locale?: SupportedLocale | string
+): string | null {
+  const withoutLocale = stripLeadingLocale(pathname);
+
+  if (withoutLocale === "/" || withoutLocale === "") return null;
+
+  const segs = withoutLocale.split("/").filter(Boolean);
+  const top = (segs[0] || "").toLowerCase();
+
+  // Top-level sections
+  if (top === "about") return "about";
+  if (top === "services") return "services";
+  if (top === "blog") return "blog";
+  if (top === "portfolio") return "portfolio";
+  if (top === "contact") return "contact";
+
+  // Bilinmeyen rota → hero
   return null;
 }
