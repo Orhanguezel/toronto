@@ -1,4 +1,7 @@
-// src/modules/auth/schema.ts
+// =============================================================
+// FILE: src/modules/auth/schema.ts
+// =============================================================
+
 import {
   mysqlTable,
   char,
@@ -20,13 +23,13 @@ export const users = mysqlTable(
     password_hash: varchar("password_hash", { length: 255 }).notNull(),
     full_name: varchar("full_name", { length: 255 }),
     phone: varchar("phone", { length: 50 }),
-    wallet_balance: decimal("wallet_balance", { precision: 10, scale: 2 })
-      .notNull()
-      .default("0.00"),
+
     is_active: tinyint("is_active").notNull().default(1),
     email_verified: tinyint("email_verified").notNull().default(0),
+
     reset_token: varchar("reset_token", { length: 255 }),
     reset_token_expires: datetime("reset_token_expires", { fsp: 3 }),
+
     created_at: datetime("created_at", { fsp: 3 })
       .notNull()
       .default(sql`CURRENT_TIMESTAMP(3)`),
@@ -54,7 +57,6 @@ export const refresh_tokens = mysqlTable(
     replaced_by: char("replaced_by", { length: 36 }),
   },
   (t) => [
-    // FK users.id — userRoles modülünde user_roles zaten users'a FK veriyor.
     index("refresh_tokens_user_id_idx").on(t.user_id),
     index("refresh_tokens_expires_at_idx").on(t.expires_at),
   ],

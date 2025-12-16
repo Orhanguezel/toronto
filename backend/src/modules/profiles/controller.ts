@@ -51,7 +51,6 @@ export const upsertMyProfile: RouteHandler<{ Body: ProfileUpsertRequest }> = asy
       ...(input.city !== undefined ? { city: input.city } : {}),
       ...(input.country !== undefined ? { country: input.country } : {}),
       ...(input.postal_code !== undefined ? { postal_code: input.postal_code } : {}),
-      // wallet_balance bu tabloda YOK; users tablosunda tutuluyor.
     };
 
     const existing = await db.select().from(profiles).where(eq(profiles.id, userId)).limit(1);

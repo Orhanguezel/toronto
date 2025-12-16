@@ -1,3 +1,5 @@
+// src/common/middleware/roles.ts
+
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 /** Basit rol kontrolü; JWT payload içindeki `role` alanını bekler. */

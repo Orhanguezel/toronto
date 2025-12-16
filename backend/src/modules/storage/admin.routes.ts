@@ -1,30 +1,77 @@
+// src/modules/storage/admin.routes.ts
 import type { FastifyInstance } from "fastify";
+import { requireAuth } from "@/common/middleware/auth";
+import { requireAdmin } from "@/common/middleware/roles";
 import {
   adminListAssets,
   adminGetAsset,
-  adminGetAssetMerged,
   adminCreateAsset,
   adminPatchAsset,
-  adminPatchAssetI18n,
   adminDeleteAsset,
   adminBulkDelete,
   adminListFolders,
+  adminDiagCloudinary,
+  adminBulkCreateAssets, 
 } from "./admin.controller";
 
-const BASE = "/storage";
+import type { StorageUpdateInput } from "./validation";
 
 export async function registerStorageAdmin(app: FastifyInstance) {
-  // assets
-  app.get(`${BASE}/assets`,               { config: { auth: true } }, adminListAssets);
-  app.get(`${BASE}/assets/:id`,           { config: { auth: true } }, adminGetAsset);
-  app.get(`${BASE}/assets/:id/merged`,    { config: { auth: true } }, adminGetAssetMerged);
+  const BASE = "/storage";
 
-  app.post(`${BASE}/assets`,              { config: { auth: true } }, adminCreateAsset);
-  app.patch(`${BASE}/assets/:id`,         { config: { auth: true } }, adminPatchAsset);
-  app.patch(`${BASE}/assets/:id/i18n`,    { config: { auth: true } }, adminPatchAssetI18n);
-  app.delete(`${BASE}/assets/:id`,        { config: { auth: true } }, adminDeleteAsset);
-  app.post(`${BASE}/assets/bulk-delete`,  { config: { auth: true } }, adminBulkDelete);
+  app.get<{ Querystring: unknown }>(
+    `${BASE}/assets`,
+    { preHandler: [requireAuth, requireAdmin] },
+    adminListAssets
+  );
 
-  // helpers
-  app.get(`${BASE}/folders`,              { config: { auth: true } }, adminListFolders);
+  app.get<{ Params: { id: string } }>(
+    `${BASE}/assets/:id`,
+    { preHandler: [requireAuth, requireAdmin] },
+    adminGetAsset
+  );
+
+  app.post(
+    `${BASE}/assets`,
+    { preHandler: [requireAuth, requireAdmin] },
+    adminCreateAsset
+  );
+
+  // Bulk upload (çoklu dosya)
+  app.post(
+    `${BASE}/assets/bulk`,
+    { preHandler: [requireAuth, requireAdmin] },
+    adminBulkCreateAssets
+  );
+
+  // PATCH body tipini belirt
+  app.patch<{ Params: { id: string }; Body: StorageUpdateInput }>(
+    `${BASE}/assets/:id`,
+    { preHandler: [requireAuth, requireAdmin] },
+    adminPatchAsset
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    `${BASE}/assets/:id`,
+    { preHandler: [requireAuth, requireAdmin] },
+    adminDeleteAsset
+  );
+
+  app.post<{ Body: { ids: string[] } }>(
+    `${BASE}/assets/bulk-delete`,
+    { preHandler: [requireAuth, requireAdmin] },
+    adminBulkDelete
+  );
+
+  app.get(
+    `${BASE}/folders`,
+    { preHandler: [requireAuth, requireAdmin] },
+    adminListFolders
+  );
+
+  app.get(
+    `${BASE}/_diag/cloud`,
+    { preHandler: [requireAuth, requireAdmin] },
+    adminDiagCloudinary
+  );
 }

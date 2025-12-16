@@ -1,4 +1,10 @@
-import type { FastifyInstance } from "fastify";
+// =============================================================
+// FILE: src/modules/references/admin.routes.ts
+// =============================================================
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { requireAuth } from "@/common/middleware/auth";
+import { requireAdmin } from "@/common/middleware/roles";
+
 import {
   listReferencesAdmin,
   getReferenceAdmin,
@@ -6,28 +12,46 @@ import {
   createReferenceAdmin,
   updateReferenceAdmin,
   removeReferenceAdmin,
-
-  listReferenceImagesAdmin,
-  createReferenceImageAdmin,
-  updateReferenceImageAdmin,
-  removeReferenceImageAdmin,
 } from "./admin.controller";
 
 const BASE = "/references";
 
 export async function registerReferencesAdmin(app: FastifyInstance) {
-  // references
-  app.get(`${BASE}`,               { config: { auth: true } }, listReferencesAdmin);
-  app.get(`${BASE}/:id`,           { config: { auth: true } }, getReferenceAdmin);
-  app.get(`${BASE}/by-slug/:slug`, { config: { auth: true } }, getReferenceBySlugAdmin);
+  const adminGuard = async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAuth(req, reply);
+    if (reply.sent) return;
+    await requireAdmin(req, reply);
+  };
 
-  app.post(`${BASE}`,              { config: { auth: true } }, createReferenceAdmin);
-  app.patch(`${BASE}/:id`,         { config: { auth: true } }, updateReferenceAdmin);
-  app.delete(`${BASE}/:id`,        { config: { auth: true } }, removeReferenceAdmin);
+  app.get(
+    `${BASE}`,
+    { preHandler: adminGuard, config: { auth: true, admin: true } },
+    listReferencesAdmin,
+  );
+  app.get(
+    `${BASE}/:id`,
+    { preHandler: adminGuard, config: { auth: true, admin: true } },
+    getReferenceAdmin,
+  );
+  app.get(
+    `${BASE}/by-slug/:slug`,
+    { preHandler: adminGuard, config: { auth: true, admin: true } },
+    getReferenceBySlugAdmin,
+  );
 
-  // gallery
-  app.get(`${BASE}/:id/images`,             { config: { auth: true } }, listReferenceImagesAdmin);
-  app.post(`${BASE}/:id/images`,            { config: { auth: true } }, createReferenceImageAdmin);
-  app.patch(`${BASE}/:id/images/:imageId`,  { config: { auth: true } }, updateReferenceImageAdmin);
-  app.delete(`${BASE}/:id/images/:imageId`, { config: { auth: true } }, removeReferenceImageAdmin);
+  app.post(
+    `${BASE}`,
+    { preHandler: adminGuard, config: { auth: true, admin: true } },
+    createReferenceAdmin,
+  );
+  app.patch(
+    `${BASE}/:id`,
+    { preHandler: adminGuard, config: { auth: true, admin: true } },
+    updateReferenceAdmin,
+  );
+  app.delete(
+    `${BASE}/:id`,
+    { preHandler: adminGuard, config: { auth: true, admin: true } },
+    removeReferenceAdmin,
+  );
 }

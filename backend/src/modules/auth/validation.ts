@@ -1,4 +1,8 @@
-import { z } from 'zod';
+// =============================================================
+// FILE: src/modules/auth/validation.ts
+// =============================================================
+
+import { z } from "zod";
 
 export const signupBody = z.object({
   email: z.string().email(),
@@ -24,7 +28,7 @@ export const signupBody = z.object({
 });
 
 export const tokenBody = z.object({
-  grant_type: z.literal('password'),
+  grant_type: z.literal("password"),
   email: z.string().email(),
   password: z.string().min(6),
 });
@@ -38,18 +42,22 @@ export const googleBody = z.object({
   id_token: z.string().min(10),
 });
 
-/** Admin işlemleri */
+/** Admin işlemleri (legacy – admin controller başka dosyada) */
 export const adminListQuery = z.object({
   q: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
 });
 
-export const adminRoleBody = z.object({
-  user_id: z.string().uuid().optional(),
-  email: z.string().email().optional(),
-  role: z.enum(['admin', 'moderator', 'user']),
-}).refine(v => v.user_id || v.email, { message: 'user_id_or_email_required' });
+export const adminRoleBody = z
+  .object({
+    user_id: z.string().uuid().optional(),
+    email: z.string().email().optional(),
+    role: z.enum(["admin", "moderator", "user"]),
+  })
+  .refine((v) => v.user_id || v.email, {
+    message: "user_id_or_email_required",
+  });
 
 export const adminMakeByEmailBody = z.object({
   email: z.string().email(),

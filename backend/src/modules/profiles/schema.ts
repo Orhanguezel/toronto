@@ -12,7 +12,6 @@ import { users } from '@/modules/auth/schema';
 /**
  * profiles.id = users.id (UUID)
  * Adres alanları opsiyonel.
- * NOT: wallet_balance BU TABLODA YOK (users tablosunda).
  */
 export const profiles = mysqlTable(
   'profiles',

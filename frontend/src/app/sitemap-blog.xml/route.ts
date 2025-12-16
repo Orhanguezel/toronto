@@ -1,16 +1,84 @@
 // /src/app/sitemap-blog.xml/route.ts
 export const revalidate = 600;
 
-const LOCALES = ['tr', 'en', 'de'] as const;
-const BASE = process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com';
-const API  = process.env.API_BASE_URL || '';
+const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://example.com";
+const API = process.env.API_BASE_URL || "";
 
 function xmlEscape(s: string) {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/** BE bazen value'yu JSON-string döndürebilir; normalize et. */
+function tryParse(x: unknown): unknown {
+  if (typeof x === "string") {
+    const s = x.trim();
+    if (
+      (s.startsWith("{") && s.endsWith("}")) ||
+      (s.startsWith("[") && s.endsWith("]"))
+    ) {
+      try {
+        return JSON.parse(s);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (s === "true") return true;
+    if (s === "false") return false;
+    if (!Number.isNaN(Number(s)) && s !== "") return Number(s);
+  }
+  return x;
+}
+
+/**
+ * app_locales value normalize:
+ * - ["tr","en"] veya { locales: ["tr","en"] } veya ["tr-TR","en-US"]
+ */
+function normalizeLocales(raw: unknown): string[] {
+  const v = tryParse(raw);
+
+  const arr: unknown[] =
+    Array.isArray(v)
+      ? v
+      : v && typeof v === "object" && Array.isArray((v as any).locales)
+        ? (v as any).locales
+        : [];
+
+  const cleaned = arr
+    .map((x) => String(x).toLowerCase().split("-")[0])
+    .filter(Boolean);
+
+  // unique + stable order
+  return Array.from(new Set(cleaned));
+}
+
+/** API'den aktif locale'leri çek; yoksa fallback. */
+async function fetchActiveLocales(): Promise<string[]> {
+  const fallbackDefault =
+    String(process.env.NEXT_PUBLIC_DEFAULT_LOCALE || "tr")
+      .toLowerCase()
+      .split("-")[0] || "tr";
+
+  if (!API) return [fallbackDefault];
+
+  try {
+    const res = await fetch(
+      `${API}/site_settings/${encodeURIComponent("app_locales")}`,
+      { next: { revalidate } }
+    );
+
+    if (!res.ok) return [fallbackDefault];
+
+    const data = (await res.json()) as any;
+    const locales = normalizeLocales(data?.value);
+
+    return locales.length ? locales : [fallbackDefault];
+  } catch {
+    return [fallbackDefault];
+  }
 }
 
 async function fetchPosts(locale: string) {
@@ -29,29 +97,54 @@ async function fetchPosts(locale: string) {
 }
 
 export async function GET() {
+  // ✅ Locale listesi artık dinamik
+  const locales = await fetchActiveLocales();
+
   // Her locale için blog listesi çek
   const all = await Promise.all(
-    LOCALES.map(async (locale) => {
+    locales.map(async (locale) => {
       const items = await fetchPosts(locale);
       return { locale, items };
     })
   );
 
-  const urlEntries = all.flatMap(({ locale, items }) => {
-    // Blog index sayfasını da ekle
-    const idx = `<url><loc>${xmlEscape(`${BASE}/${locale}/blog`)}</loc><lastmod>${new Date().toISOString()}</lastmod></url>`;
+  const nowIso = new Date().toISOString();
 
-    const posts = items.map((p: any) => {
-      const slug = p?.slug ?? '';
-      if (!slug) return '';
-      const last =
-        p?.updated_at || p?.published_at || p?.created_at || new Date().toISOString();
-      const loc = `${BASE}/${locale}/blog/${slug}`;
-      return `<url><loc>${xmlEscape(loc)}</loc><lastmod>${new Date(last).toISOString()}</lastmod></url>`;
-    }).join('');
+  const urlEntries = all
+    .flatMap(({ locale, items }) => {
+      // Blog index sayfasını da ekle
+      const idx = `<url><loc>${xmlEscape(
+        `${BASE}/${locale}/blog`
+      )}</loc><lastmod>${nowIso}</lastmod></url>`;
 
-    return idx + posts;
-  }).join('');
+      const posts = items
+        .map((p: any) => {
+          const slug = p?.slug ?? "";
+          if (!slug) return "";
+
+          const last =
+            p?.updated_at ||
+            p?.published_at ||
+            p?.created_at ||
+            nowIso;
+
+          let lastIso = nowIso;
+          try {
+            lastIso = new Date(last).toISOString();
+          } catch {
+            lastIso = nowIso;
+          }
+
+          const loc = `${BASE}/${locale}/blog/${slug}`;
+          return `<url><loc>${xmlEscape(loc)}</loc><lastmod>${xmlEscape(
+            lastIso
+          )}</lastmod></url>`;
+        })
+        .join("");
+
+      return [idx, posts];
+    })
+    .join("");
 
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>` +
@@ -61,8 +154,8 @@ export async function GET() {
 
   return new Response(xml, {
     headers: {
-      'Content-Type': 'application/xml; charset=utf-8',
-      'Cache-Control': 's-maxage=600, stale-while-revalidate=300',
+      "Content-Type": "application/xml; charset=utf-8",
+      "Cache-Control": "s-maxage=600, stale-while-revalidate=300",
     },
   });
 }

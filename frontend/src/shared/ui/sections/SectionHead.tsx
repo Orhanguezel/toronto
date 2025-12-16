@@ -1,15 +1,17 @@
+// src/shared/ui/sections/SectionHead.tsx
+
 "use client";
 
 import styled from "styled-components";
 import React, { useId } from "react";
 
 const HeadWrap = styled.header<{ $center?: boolean }>`
-  margin-bottom: 16px;
+  margin-bottom: clamp(24px, 4vw, 48px); /* 🔼 artırıldı */
   text-align: ${({ $center }) => ($center ? "center" : "left")};
 `;
 
 const Title = styled.h2`
-  margin: 0 0 6px 0;
+  margin: 0 0 8px 0;
   font-size: ${({ theme }) => theme.fontSizes.h2};
   line-height: 1.2;
   color: ${({ theme }) => theme.colors.title};
@@ -28,7 +30,7 @@ type Props = {
   lead?: string;
   center?: boolean;
   children?: React.ReactNode;
-  id?: string; // opsiyonel: harici id vermek istersen
+  id?: string;
 };
 
 export default function SectionHead({

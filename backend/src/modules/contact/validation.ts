@@ -9,8 +9,8 @@ export const ContactCreateSchema = z.object({
   phone: z.string().min(5).max(64),
   subject: z.string().min(2).max(255),
   message: z.string().min(10).max(5000),
-  // Opsiyonel antispam alanları
-  website: z.string().max(255).optional().nullable(), // honeypot
+  // Opsiyonel antispam alanları (honeypot)
+  website: z.string().max(255).optional().nullable(),
 });
 
 export const ContactUpdateSchema = z.object({
@@ -22,7 +22,8 @@ export const ContactUpdateSchema = z.object({
 export const ContactListParamsSchema = z.object({
   search: z.string().optional(),
   status: z.enum(["new", "in_progress", "closed"]).optional(),
-  resolved: z.boolean().optional(),
+  // 🔧 Query string'den geldiği için coerce et
+  resolved: z.coerce.boolean().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
   offset: z.coerce.number().int().min(0).optional(),
   orderBy: z.enum(["created_at", "updated_at", "status", "name"]).optional(),

@@ -3,58 +3,113 @@
 import React from 'react';
 import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
+
 import LocaleSwitcher from '@/shared/ui/navigation/LocaleSwitcher';
+import { toRoute } from '@/shared/routing/toRoute';
+
+import { useResolvedLocale } from '@/i18n/locale';
+import type { SupportedLocale } from '@/types/common';
+
+import { useListMenuItemsQuery } from '@/integrations/rtk/endpoints/menu_items.endpoints';
+import type { PublicMenuItemDto } from '@/integrations/types/menu_items.types';
 
 import {
-  Bar, Row, Left, Right, Brand, LogoImg, DesktopNav, Glass,
-  NavLink, Dropdown, DropBtn, Panel, PanelLink,
-  BurgerBtn, DesktopLocale, MobileSheet, MobilePanel, MobileHeader, CloseBtn, MobileLink,
+  Bar,
+  Row,
+  Left,
+  Right,
+  Brand,
+  LogoImg,
+  DesktopNav,
+  Glass,
+  NavLink,
+  Dropdown,
+  DropBtn,
+  Panel,
+  PanelLink,
+  BurgerBtn,
+  DesktopLocale,
+  MobileSheet,
+  MobilePanel,
+  MobileHeader,
+  CloseBtn,
+  MobileLink,
 } from './Navbar.styles';
 
-/* ========= helpers ========= */
-const GAP = 24;
-function scrollToSection(id?: string) {
-  if (!id) return;
-  const el = document.getElementById(id);
-  if (!el) return;
-  const navH =
-    parseInt(getComputedStyle(document.documentElement).getPropertyValue('--navbar-h')) || 96;
-  const y = el.getBoundingClientRect().top + window.scrollY - (navH + GAP);
-  window.scrollTo({ top: y, behavior: 'smooth' });
+type SectionId = 'hero' | 'about' | 'services' | 'blog' | 'portfolio' | 'contact';
+
+type NavbarProps = {
+  locale: SupportedLocale | string;
+  contact?: { phones?: string[]; email?: string };
+
+  // 🔑 LandingClient’ten gelir
+  goToSection?: (id: SectionId) => void;
+};
+
+function buildHref(locale: SupportedLocale, url: string) {
+  const clean = (url || '').trim() || '/';
+  return `/${locale}${clean === '/' ? '' : clean}`;
 }
 
-type Locale = 'tr' | 'en' | 'de';
+function normalizeUrl(u: string) {
+  const x = (u || '').trim() || '/';
+  if (x === '') return '/';
+  // "/about/" gibi gelirse kırp
+  return x.length > 1 && x.endsWith('/') ? x.slice(0, -1) : x;
+}
 
-export default function Navbar(
-  props: { locale: Locale; contact?: { phones?: string[]; email?: string } }
-) {
-  const { locale } = props;
-  const pathname = usePathname();
+// Root menü için aktif kontrol (subpath’te de aktif kalsın)
+function isActive(pathname: string, href: string, isRoot: boolean) {
+  if (isRoot) return pathname === href;
+  return pathname === href || pathname.startsWith(href + '/');
+}
 
-  // ✅ sub destekli path üret (typed-routes: Route'a cast)
-  const toPath = (segment?: string, sub?: string): Route =>
-    (`/${locale}${segment ? `/${segment}` : ''}${sub ? `/${sub}` : ''}`) as Route;
+// URL -> section mapping (şimdilik sabit)
+function urlToSectionId(url: string): SectionId | null {
+  const u = normalizeUrl(url);
+  if (u === '/' || u === '') return 'hero';
+  if (u === '/about') return 'about';
+  if (u === '/services') return 'services';
+  if (u === '/blog') return 'blog';
+  if (u === '/portfolio') return 'portfolio';
+  if (u === '/contact') return 'contact';
+  return null;
+}
 
-  // /tr/services/web → /tr/services aktif kalsın (startsWith)
-  const is = (segment?: string) => {
-    const target = `/${locale}${segment ? `/${segment}` : ''}`;
-    if (!segment) return pathname === target ? { 'aria-current': 'page' as const } : {};
-    return pathname.startsWith(target) ? { 'aria-current': 'page' as const } : {};
-  };
+export default function Navbar(props: NavbarProps) {
+  const pathname = usePathname() || '/';
 
-  // Aynı path ise default'u iptal et → scroll
-  const clickSamePath = (e: React.MouseEvent, targetPath: string, sectionId: string) => {
-    if (pathname === targetPath) {
-      e.preventDefault();
-      scrollToSection(sectionId);
-    }
-  };
+  // ✅ 30+ dil için güvenli normalize
+  const locale = useResolvedLocale(props.locale) as SupportedLocale;
+
+  // ✅ DB’den HEADER menü ağacını çek
+  const { data } = useListMenuItemsQuery(
+    {
+      location: 'header',
+      locale,
+      is_active: 1,
+      nested: 1,
+      order: 'order_num',
+    } as any
+  );
+
+  const items = (data?.items ?? []) as PublicMenuItemDto[];
+
+  const ariaMainMenu = 'Main menu';
+  const ariaBrandHome = 'Home';
+  const ariaOpenClose = 'Open Menu';
+  const ariaClose = 'Close';
 
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  React.useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileOpen(false); };
+    setMobileOpen(false);
+  }, [pathname]);
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
@@ -63,8 +118,25 @@ export default function Navbar(
     if (!mobileOpen) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
+    return () => {
+      document.body.style.overflow = prev;
+    };
   }, [mobileOpen]);
+
+  // Home link
+  const homeHrefStr = buildHref(locale, '/');
+  const homeHref = toRoute(homeHrefStr, (`/${locale}` as Route));
+
+  // ✅ Aynı route’a basınca scroll (LandingClient dispatcher)
+  const tryGoSamePath = (e: React.MouseEvent, hrefStr: string, url: string) => {
+    if (pathname !== hrefStr) return;
+
+    const sectionId = urlToSectionId(url);
+    if (!sectionId) return;
+
+    e.preventDefault();
+    props.goToSection?.(sectionId);
+  };
 
   return (
     <>
@@ -72,105 +144,110 @@ export default function Navbar(
         <Row>
           <Left>
             <Brand
-              href={toPath()}
-              aria-label="Toronto anasayfa"
-              onClick={(e) => clickSamePath(e, `/${locale}`, 'hero')}
+              href={homeHref}
+              aria-label={ariaBrandHome}
+              onClick={(e) => {
+                // Aynı path ise hero’ya yumuşak kay
+                if (pathname === homeHrefStr) {
+                  e.preventDefault();
+                  props.goToSection?.('hero');
+                }
+              }}
               scroll={false}
             >
               <LogoImg src="/logo.svg" alt="Toronto" />
             </Brand>
           </Left>
 
-          <DesktopNav aria-label="Ana menü">
+          <DesktopNav aria-label={ariaMainMenu}>
             <Glass>
-              <NavLink
-                href={toPath()}
-                {...is()}
-                onClick={(e) => clickSamePath(e, `/${locale}`, 'hero')}
-                scroll={false}
-              >
-                Ana Sayfa
-              </NavLink>
+              {items.map((m) => {
+                const title = (m.title || '').trim() || 'Menu';
+                const url = normalizeUrl(m.url || '/');
+                const hrefStr = buildHref(locale, url);
+                const href = toRoute(hrefStr, (`/${locale}` as Route));
 
-              <NavLink
-                href={toPath('projects')}
-                {...is('projects')}
-                onClick={(e) => clickSamePath(e, `/${locale}/projects`, 'projects')}
-                scroll={false}
-              >
-                Satılık Projeler
-              </NavLink>
+                const root = !m.parent_id;
+                const activeProps = isActive(pathname, hrefStr, root)
+                  ? { 'aria-current': 'page' as const }
+                  : {};
 
-              <Dropdown>
-                <DropBtn type="button" aria-haspopup="menu" aria-expanded="false">
-                  Hizmetlerimiz
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <path d="M7 10l5 5 5-5" stroke="#EDEFF6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </DropBtn>
-                <Panel role="menu" aria-label="Hizmetlerimiz">
-                  {/* ✅ Alt başlıklar alt-segment ile */}
-                  <PanelLink
-                    href={toPath('services','web')}
-                    onClick={(e) => clickSamePath(e, `/${locale}/services/web`, 'web')}
+                const children = Array.isArray(m.children) ? m.children : [];
+                const hasChildren = children.length > 0;
+
+                // Dropdown
+                if (hasChildren) {
+                  return (
+                    <Dropdown key={m.id}>
+                      <DropBtn type="button" aria-haspopup="menu" aria-expanded="false">
+                        {title}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
+                          <path
+                            d="M7 10l5 5 5-5"
+                            stroke="#EDEFF6"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </DropBtn>
+
+                      <Panel role="menu" aria-label={title}>
+                        {children.map((c) => {
+                          const ct = (c.title || '').trim() || 'Item';
+                          const cu = normalizeUrl(c.url || '/');
+                          const chrefStr = buildHref(locale, cu);
+                          const chref = toRoute(chrefStr, (`/${locale}` as Route));
+
+                          return (
+                            <PanelLink
+                              key={c.id}
+                              href={chref}
+                              scroll={false}
+                              onClick={(e) => {
+                                // Aynı path ise ilgili section’a kay
+                                tryGoSamePath(e, chrefStr, cu);
+                              }}
+                            >
+                              {ct}
+                            </PanelLink>
+                          );
+                        })}
+                      </Panel>
+                    </Dropdown>
+                  );
+                }
+
+                // Normal link
+                return (
+                  <NavLink
+                    key={m.id}
+                    href={href}
+                    {...activeProps}
                     scroll={false}
+                    onClick={(e) => {
+                      // Aynı path ise ilgili section’a kay
+                      tryGoSamePath(e, hrefStr, url);
+                    }}
                   >
-                    Web Geliştirme
-                  </PanelLink>
-                  <PanelLink
-                    href={toPath('services','design')}
-                    onClick={(e) => clickSamePath(e, `/${locale}/services/design`, 'design')}
-                    scroll={false}
-                  >
-                    Tasarım
-                  </PanelLink>
-                  <PanelLink
-                    href={toPath('services','seo')}
-                    onClick={(e) => clickSamePath(e, `/${locale}/services/seo`, 'seo')}
-                    scroll={false}
-                  >
-                    SEO / Performans
-                  </PanelLink>
-                </Panel>
-              </Dropdown>
-
-              <NavLink
-                href={toPath('ad-solutions')}
-                {...is('ad-solutions')}
-                onClick={(e) => clickSamePath(e, `/${locale}/ad-solutions`, 'ad-solutions')}
-                scroll={false}
-              >
-                Reklam Çözümleri
-              </NavLink>
-
-              <NavLink
-                href={toPath('references')}
-                {...is('references')}
-                onClick={(e) => clickSamePath(e, `/${locale}/references`, 'references')}
-                scroll={false}
-              >
-                Referanslar
-              </NavLink>
-
-              <NavLink
-                href={toPath('contact')}
-                {...is('contact')}
-                onClick={(e) => clickSamePath(e, `/${locale}/contact`, 'contact')}
-                scroll={false}
-              >
-                İletişim
-              </NavLink>
+                    {title}
+                  </NavLink>
+                );
+              })}
             </Glass>
           </DesktopNav>
 
           <Right>
-            <DesktopLocale><LocaleSwitcher /></DesktopLocale>
+            <DesktopLocale>
+              <LocaleSwitcher />
+            </DesktopLocale>
+
             <BurgerBtn
               className={mobileOpen ? 'open' : ''}
-              aria-label="Menüyü aç/kapat"
+              aria-label={ariaOpenClose}
               aria-expanded={mobileOpen}
               aria-controls="mobile-menu"
-              onClick={() => setMobileOpen(v => !v)}
+              onClick={() => setMobileOpen((v) => !v)}
             >
               <span />
             </BurgerBtn>
@@ -183,88 +260,94 @@ export default function Navbar(
         <MobilePanel id="mobile-menu" onClick={(e) => e.stopPropagation()}>
           <MobileHeader>
             <Brand
-              href={toPath()}
-              aria-label="Toronto anasayfa"
-              onClick={(e) => { clickSamePath(e, `/${locale}`, 'hero'); setMobileOpen(false); }}
+              href={homeHref}
+              aria-label={ariaBrandHome}
               scroll={false}
+              onClick={(e) => {
+                if (pathname === homeHrefStr) {
+                  e.preventDefault();
+                  props.goToSection?.('hero');
+                }
+                setMobileOpen(false);
+              }}
             >
               <LogoImg src="/logo.svg" alt="Toronto" />
             </Brand>
-            <CloseBtn onClick={() => setMobileOpen(false)} aria-label="Kapat">✕</CloseBtn>
+
+            <CloseBtn onClick={() => setMobileOpen(false)} aria-label={ariaClose}>
+              ✕
+            </CloseBtn>
           </MobileHeader>
 
-          <MobileLink
-            href={toPath()}
-            {...is()}
-            onClick={(e) => { clickSamePath(e, `/${locale}`, 'hero'); setMobileOpen(false); }}
-            scroll={false}
-          >
-            Ana Sayfa
-          </MobileLink>
+          {items.map((m) => {
+            const title = (m.title || '').trim() || 'Menu';
+            const url = normalizeUrl(m.url || '/');
+            const hrefStr = buildHref(locale, url);
+            const href = toRoute(hrefStr, (`/${locale}` as Route));
 
-          <MobileLink
-            href={toPath('projects')}
-            {...is('projects')}
-            onClick={(e) => { clickSamePath(e, `/${locale}/projects`, 'projects'); setMobileOpen(false); }}
-            scroll={false}
-          >
-            Satılık Projeler
-          </MobileLink>
+            const root = !m.parent_id;
+            const activeProps = isActive(pathname, hrefStr, root)
+              ? { 'aria-current': 'page' as const }
+              : {};
 
-          {/* ✅ Mobile alt-segmentler de düzeltildi */}
-          <MobileLink
-            href={toPath('services','web')}
-            {...is('services')}
-            onClick={(e) => { clickSamePath(e, `/${locale}/services/web`, 'web'); setMobileOpen(false); }}
-            scroll={false}
-          >
-            Web Geliştirme
-          </MobileLink>
+            const children = Array.isArray(m.children) ? m.children : [];
+            const hasChildren = children.length > 0;
 
-          <MobileLink
-            href={toPath('services','design')}
-            {...is('services')}
-            onClick={(e) => { clickSamePath(e, `/${locale}/services/design`, 'design'); setMobileOpen(false); }}
-            scroll={false}
-          >
-            Tasarım
-          </MobileLink>
+            if (!hasChildren) {
+              return (
+                <MobileLink
+                  key={m.id}
+                  href={href}
+                  {...activeProps}
+                  scroll={false}
+                  onClick={(e) => {
+                    tryGoSamePath(e, hrefStr, url);
+                    setMobileOpen(false);
+                  }}
+                >
+                  {title}
+                </MobileLink>
+              );
+            }
 
-          <MobileLink
-            href={toPath('services','seo')}
-            {...is('services')}
-            onClick={(e) => { clickSamePath(e, `/${locale}/services/seo`, 'seo'); setMobileOpen(false); }}
-            scroll={false}
-          >
-            SEO / Performans
-          </MobileLink>
+            return (
+              <React.Fragment key={m.id}>
+                <MobileLink
+                  href={href}
+                  {...activeProps}
+                  scroll={false}
+                  onClick={(e) => {
+                    tryGoSamePath(e, hrefStr, url);
+                    setMobileOpen(false);
+                  }}
+                >
+                  {title}
+                </MobileLink>
 
-          <MobileLink
-            href={toPath('ad-solutions')}
-            {...is('ad-solutions')}
-            onClick={(e) => { clickSamePath(e, `/${locale}/ad-solutions`, 'ad-solutions'); setMobileOpen(false); }}
-            scroll={false}
-          >
-            Reklam Çözümleri
-          </MobileLink>
+                {children.map((c) => {
+                  const ct = (c.title || '').trim() || 'Item';
+                  const cu = normalizeUrl(c.url || '/');
+                  const chrefStr = buildHref(locale, cu);
+                  const chref = toRoute(chrefStr, (`/${locale}` as Route));
 
-          <MobileLink
-            href={toPath('references')}
-            {...is('references')}
-            onClick={(e) => { clickSamePath(e, `/${locale}/references`, 'references'); setMobileOpen(false); }}
-            scroll={false}
-          >
-            Referanslar
-          </MobileLink>
-
-          <MobileLink
-            href={toPath('contact')}
-            {...is('contact')}
-            onClick={(e) => { clickSamePath(e, `/${locale}/contact`, 'contact'); setMobileOpen(false); }}
-            scroll={false}
-          >
-            İletişim
-          </MobileLink>
+                  return (
+                    <MobileLink
+                      key={c.id}
+                      href={chref}
+                      scroll={false}
+                      onClick={(e) => {
+                        tryGoSamePath(e, chrefStr, cu);
+                        setMobileOpen(false);
+                      }}
+                      style={{ paddingLeft: 18 }}
+                    >
+                      {ct}
+                    </MobileLink>
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
 
           <div style={{ marginTop: 'auto', paddingTop: 8 }}>
             <LocaleSwitcher />

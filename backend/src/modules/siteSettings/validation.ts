@@ -1,13 +1,23 @@
 // src/modules/siteSettings/validation.ts
 
-import { z } from 'zod';
+import { z } from "zod";
 
 /** JSON-like recursive schema (no-any) */
-const jsonLiteral = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const jsonLiteral = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
 type JsonLiteral = z.infer<typeof jsonLiteral>;
-export type JsonLike = JsonLiteral | JsonLike[] | { [k: string]: JsonLike };
+
+export type JsonLike =
+  | JsonLiteral
+  | JsonLike[]
+  | { [k: string]: JsonLike };
+
 export const jsonLike: z.ZodType<JsonLike> = z.lazy(() =>
-  z.union([jsonLiteral, z.array(jsonLike), z.record(jsonLike)])
+  z.union([jsonLiteral, z.array(jsonLike), z.record(jsonLike)]),
 );
 
 export const siteSettingUpsertSchema = z.object({
@@ -20,4 +30,6 @@ export const siteSettingBulkUpsertSchema = z.object({
 });
 
 export type SiteSettingUpsertInput = z.infer<typeof siteSettingUpsertSchema>;
-export type SiteSettingBulkUpsertInput = z.infer<typeof siteSettingBulkUpsertSchema>;
+export type SiteSettingBulkUpsertInput = z.infer<
+  typeof siteSettingBulkUpsertSchema
+>;

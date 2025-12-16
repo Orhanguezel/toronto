@@ -22,7 +22,6 @@ export default function WhatsAppButton({
   const href = n ? `https://wa.me/${n}` : "https://wa.me";
 
   const baseSize = typeof size === "number" ? `${size}px` : size;
-  // Dışarıdan style.width/height verilmişse onları kullan, yoksa baseSize
   const boxW = style?.width ?? baseSize;
   const boxH = style?.height ?? baseSize;
 
@@ -38,10 +37,10 @@ export default function WhatsAppButton({
         width: boxW,
         height: boxH,
         lineHeight: 0,
-        borderRadius: 16,       // figma’daki kare radius hissi
+        borderRadius: 16,
         overflow: "hidden",
         cursor: "pointer",
-        ...style,               // çağıran override edebilir
+        ...style,
       }}
     >
       {/* SVG, container’ı %100 doldurur (responsif) */}

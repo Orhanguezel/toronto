@@ -1,3 +1,5 @@
+// src/common/middleware/auth.ts
+
 import type { FastifyRequest, FastifyReply } from "fastify";
 import "@fastify/jwt";
 import "@fastify/cookie";

@@ -1,18 +1,8 @@
+// =============================================================
+// FILE: src/modules/references/admin.controller.ts
+// =============================================================
 import type { RouteHandler } from "fastify";
 import { randomUUID } from "crypto";
-import { DEFAULT_LOCALE } from "@/core/i18n";
-import {
-  referenceListQuerySchema,
-  upsertReferenceBodySchema,
-  patchReferenceBodySchema,
-  type ReferenceListQuery,
-  type UpsertReferenceBody,
-  type PatchReferenceBody,
-  upsertReferenceImageBodySchema,
-  patchReferenceImageBodySchema,
-  type UpsertReferenceImageBody,
-  type PatchReferenceImageBody,
-} from "./validation";
 import {
   listReferences,
   getReferenceMergedById,
@@ -20,29 +10,41 @@ import {
   createReferenceParent,
   updateReferenceParent,
   deleteReferenceParent,
-  upsertReferenceI18n,
-  upsertReferenceI18nAllLocales,
   getReferenceI18nRow,
+  upsertReferenceI18n,
   packContent,
-
-  listReferenceImagesMerged,
-  createReferenceImageParent,
-  updateReferenceImageParent,
-  deleteReferenceImageParent,
-  upsertReferenceImageI18n,
-  upsertReferenceImageI18nAllLocales,
 } from "./repository";
+import {
+  referencesListQuerySchema,
+  upsertReferenceBodySchema,
+  patchReferenceBodySchema,
+  type ReferencesListQuery,
+  type UpsertReferenceBody,
+  type PatchReferenceBody,
+  LOCALES,
+  type Locale,
+} from "./validation";
+import { setContentRange } from "@/common/utils/contentRange";
+
+const DEFAULT_LOCALE: Locale = LOCALES[0];
 
 const toBool = (v: unknown): boolean =>
   v === true || v === 1 || v === "1" || v === "true";
 
-/* ================= references: LIST/GET ================= */
-export const listReferencesAdmin: RouteHandler<{ Querystring: ReferenceListQuery }> = async (req, reply) => {
-  const parsed = referenceListQuerySchema.safeParse(req.query ?? {});
+/** LIST (admin) – coalesced */
+export const listReferencesAdmin: RouteHandler = async (req, reply) => {
+  const parsed = referencesListQuerySchema.safeParse(req.query ?? {});
   if (!parsed.success) {
-    return reply.code(400).send({ error: { message: "invalid_query", issues: parsed.error.issues } });
+    return reply.code(400).send({
+      error: { message: "invalid_query", issues: parsed.error.issues },
+    });
   }
-  const q = parsed.data;
+  const q = parsed.data as ReferencesListQuery;
+
+  const locale: Locale =
+    (q.locale as Locale) ??
+    ((req as any).locale as Locale | undefined) ??
+    DEFAULT_LOCALE;
 
   const { items, total } = await listReferences({
     orderParam: typeof q.order === "string" ? q.order : undefined,
@@ -54,114 +56,239 @@ export const listReferencesAdmin: RouteHandler<{ Querystring: ReferenceListQuery
     is_featured: q.is_featured,
     q: q.q,
     slug: q.slug,
-    locale: (req as any).locale,
+    category_id: q.category_id,
+    sub_category_id: q.sub_category_id,
+    module_key: q.module_key,
+    has_website: q.has_website,
+    locale,
     defaultLocale: DEFAULT_LOCALE,
   });
 
+  const offset = q.offset ?? 0;
+  const limit = q.limit ?? items.length ?? 0;
+
+  setContentRange(reply, offset, limit, total);
   reply.header("x-total-count", String(total ?? 0));
   return reply.send(items);
 };
 
-export const getReferenceAdmin: RouteHandler<{ Params: { id: string } }> = async (req, reply) => {
-  const row = await getReferenceMergedById((req as any).locale, DEFAULT_LOCALE, req.params.id);
-  if (!row) return reply.code(404).send({ error: { message: "not_found" } });
+/** GET BY ID (admin) – coalesced, locale-aware (?locale=) */
+export const getReferenceAdmin: RouteHandler = async (req, reply) => {
+  const { id } = (req.params ?? {}) as { id: string };
+  const q = (req.query ?? {}) as { locale?: string };
+
+  const locale: Locale =
+    (q.locale as Locale | undefined) ??
+    ((req as any).locale as Locale | undefined) ??
+    DEFAULT_LOCALE;
+
+  const row = await getReferenceMergedById(
+    locale,
+    DEFAULT_LOCALE,
+    id,
+  );
+  if (!row) {
+    return reply.code(404).send({ error: { message: "not_found" } });
+  }
   return reply.send(row);
 };
 
-export const getReferenceBySlugAdmin: RouteHandler<{ Params: { slug: string } }> = async (req, reply) => {
-  const row = await getReferenceMergedBySlug((req as any).locale, DEFAULT_LOCALE, req.params.slug);
-  if (!row) return reply.code(404).send({ error: { message: "not_found" } });
+/** GET BY SLUG (admin) – coalesced, locale-aware (?locale=) */
+export const getReferenceBySlugAdmin: RouteHandler = async (
+  req,
+  reply,
+) => {
+  const { slug } = (req.params ?? {}) as { slug: string };
+  const q = (req.query ?? {}) as { locale?: string };
+
+  const locale: Locale =
+    (q.locale as Locale | undefined) ??
+    ((req as any).locale as Locale | undefined) ??
+    DEFAULT_LOCALE;
+
+  const row = await getReferenceMergedBySlug(
+    locale,
+    DEFAULT_LOCALE,
+    slug,
+  );
+  if (!row) {
+    return reply.code(404).send({ error: { message: "not_found" } });
+  }
   return reply.send(row);
 };
 
-/* ================= references: CREATE ================= */
-export const createReferenceAdmin: RouteHandler<{ Body: UpsertReferenceBody }> = async (req, reply) => {
+/** CREATE (admin) */
+export const createReferenceAdmin: RouteHandler = async (req, reply) => {
   const parsed = upsertReferenceBodySchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    return reply.code(400).send({ error: { message: "invalid_body", issues: parsed.error.issues } });
+    return reply.code(400).send({
+      error: { message: "invalid_body", issues: parsed.error.issues },
+    });
   }
-  const b = parsed.data;
-  const locale = b.locale ?? (req as any).locale;
+  const b = parsed.data as UpsertReferenceBody;
+
+  const primaryLocale: Locale =
+    (b.locale as Locale) ??
+    ((req as any).locale as Locale | undefined) ??
+    DEFAULT_LOCALE;
 
   try {
     const id = randomUUID();
+
     await createReferenceParent({
       id,
       is_published: toBool(b.is_published) ? 1 : 0,
       is_featured: toBool(b.is_featured) ? 1 : 0,
-      display_order: typeof b.display_order === "number" ? b.display_order : 0,
+      display_order: b.display_order ?? 0,
 
-      featured_image: typeof b.featured_image !== "undefined" ? (b.featured_image ?? null) : null,
+      featured_image:
+        typeof b.featured_image !== "undefined"
+          ? b.featured_image ?? null
+          : null,
       featured_image_asset_id:
-        typeof b.featured_image_asset_id !== "undefined" ? (b.featured_image_asset_id ?? null) : null,
+        typeof b.featured_image_asset_id !== "undefined"
+          ? b.featured_image_asset_id ?? null
+          : null,
 
-      website_url: typeof b.website_url !== "undefined" ? (b.website_url ?? null) : null,
+      website_url:
+        typeof b.website_url !== "undefined"
+          ? b.website_url ?? null
+          : null,
+
+      category_id:
+        typeof b.category_id !== "undefined"
+          ? b.category_id ?? null
+          : null,
+      sub_category_id:
+        typeof b.sub_category_id !== "undefined"
+          ? b.sub_category_id ?? null
+          : null,
 
       created_at: new Date() as any,
       updated_at: new Date() as any,
     });
 
-    const payload = {
+    const packedContent = packContent(b.content);
+    const basePayload = {
       title: b.title.trim(),
       slug: b.slug.trim(),
-      summary: typeof b.summary === "string" ? b.summary : (b.summary ?? null),
-      content: packContent(b.content),
-      featured_image_alt: typeof b.featured_image_alt === "string" ? b.featured_image_alt.trim() : (b.featured_image_alt ?? null),
-      meta_title: typeof b.meta_title === "string" ? b.meta_title.trim() : (b.meta_title ?? null),
-      meta_description: typeof b.meta_description === "string" ? b.meta_description.trim() : (b.meta_description ?? null),
+      summary:
+        typeof b.summary === "string"
+          ? b.summary.trim()
+          : b.summary ?? null,
+      content: packedContent,
+      featured_image_alt:
+        typeof b.featured_image_alt === "string"
+          ? b.featured_image_alt.trim()
+          : b.featured_image_alt ?? null,
+      meta_title:
+        typeof b.meta_title === "string"
+          ? b.meta_title.trim()
+          : b.meta_title ?? null,
+      meta_description:
+        typeof b.meta_description === "string"
+          ? b.meta_description.trim()
+          : b.meta_description ?? null,
     };
 
-    const replicateAll = b.replicate_all_locales ?? true;
-    if (replicateAll) {
-      await upsertReferenceI18nAllLocales(id, payload);
-    } else {
-      await upsertReferenceI18n(id, locale, payload);
+    // İlk kayıt tüm LOCALES için klon
+    const localesToCreate: Locale[] = [...LOCALES];
+    localesToCreate.sort((a, bLoc) =>
+      a === primaryLocale ? -1 : bLoc === primaryLocale ? 1 : 0,
+    );
+
+    for (const loc of localesToCreate) {
+      await upsertReferenceI18n(id, loc, basePayload);
     }
 
-    const row = await getReferenceMergedById(locale, DEFAULT_LOCALE, id);
+    const row = await getReferenceMergedById(
+      primaryLocale,
+      DEFAULT_LOCALE,
+      id,
+    );
     return reply.code(201).send(row);
   } catch (err: any) {
     if (err?.code === "ER_DUP_ENTRY") {
-      return reply.code(409).send({ error: { message: "slug_already_exists" } });
+      return reply
+        .code(409)
+        .send({ error: { message: "slug_already_exists" } });
     }
-    req.log.error({ err }, "references_create_failed");
-    return reply.code(500).send({ error: { message: "references_create_failed" } });
+    (req as any).log.error({ err }, "references_create_failed");
+    return reply
+      .code(500)
+      .send({ error: { message: "references_create_failed" } });
   }
 };
 
-/* ================= references: UPDATE ================= */
-export const updateReferenceAdmin: RouteHandler<{ Params: { id: string }; Body: PatchReferenceBody }> = async (req, reply) => {
+/** UPDATE (admin, partial) */
+export const updateReferenceAdmin: RouteHandler = async (req, reply) => {
+  const { id } = (req.params ?? {}) as { id: string };
+
   const parsed = patchReferenceBodySchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    return reply.code(400).send({ error: { message: "invalid_body", issues: parsed.error.issues } });
+    return reply.code(400).send({
+      error: { message: "invalid_body", issues: parsed.error.issues },
+    });
   }
-  const b = parsed.data;
-  const locale = b.locale ?? (req as any).locale;
+  const b = parsed.data as PatchReferenceBody;
+
+  const locale: Locale =
+    (b.locale as Locale) ??
+    ((req as any).locale as Locale | undefined) ??
+    DEFAULT_LOCALE;
 
   try {
-    // parent patch (varsa)
-    if (
+    const hasParentFields =
       typeof b.is_published !== "undefined" ||
       typeof b.is_featured !== "undefined" ||
       typeof b.display_order !== "undefined" ||
       typeof b.featured_image !== "undefined" ||
       typeof b.featured_image_asset_id !== "undefined" ||
-      typeof b.website_url !== "undefined"
-    ) {
-      await updateReferenceParent(req.params.id, {
-        is_published: typeof b.is_published !== "undefined" ? (toBool(b.is_published) ? 1 : 0) : undefined,
-        is_featured: typeof b.is_featured !== "undefined" ? (toBool(b.is_featured) ? 1 : 0) : undefined,
-        display_order: typeof b.display_order === "number" ? b.display_order : undefined,
+      typeof b.category_id !== "undefined" ||
+      typeof b.sub_category_id !== "undefined" ||
+      typeof b.website_url !== "undefined";
 
-        featured_image: typeof b.featured_image !== "undefined" ? (b.featured_image ?? null) : undefined,
+    if (hasParentFields) {
+      await updateReferenceParent(id, {
+        is_published:
+          typeof b.is_published !== "undefined"
+            ? toBool(b.is_published)
+              ? (1 as any)
+              : (0 as any)
+            : undefined,
+        is_featured:
+          typeof b.is_featured !== "undefined"
+            ? toBool(b.is_featured)
+              ? (1 as any)
+              : (0 as any)
+            : undefined,
+        display_order:
+          typeof b.display_order !== "undefined"
+            ? b.display_order
+            : undefined,
+        featured_image:
+          typeof b.featured_image !== "undefined"
+            ? b.featured_image ?? null
+            : undefined,
         featured_image_asset_id:
-          typeof b.featured_image_asset_id !== "undefined" ? (b.featured_image_asset_id ?? null) : undefined,
-
-        website_url: typeof b.website_url !== "undefined" ? (b.website_url ?? null) : undefined,
+          typeof b.featured_image_asset_id !== "undefined"
+            ? b.featured_image_asset_id ?? null
+            : undefined,
+        website_url:
+          typeof b.website_url !== "undefined"
+            ? b.website_url ?? null
+            : undefined,
+        category_id:
+          typeof b.category_id !== "undefined"
+            ? b.category_id ?? null
+            : undefined,
+        sub_category_id:
+          typeof b.sub_category_id !== "undefined"
+            ? b.sub_category_id ?? null
+            : undefined,
       } as any);
     }
 
-    // i18n patch (varsa)
     const hasI18nFields =
       typeof b.title !== "undefined" ||
       typeof b.slug !== "undefined" ||
@@ -172,155 +299,102 @@ export const updateReferenceAdmin: RouteHandler<{ Params: { id: string }; Body: 
       typeof b.meta_description !== "undefined";
 
     if (hasI18nFields) {
-      const payload = {
-        title: typeof b.title === "string" ? b.title.trim() : undefined,
-        slug: typeof b.slug === "string" ? b.slug.trim() : undefined,
-        summary:
-          typeof b.summary !== "undefined"
-            ? (typeof b.summary === "string" ? b.summary : (b.summary ?? null))
-            : undefined,
-        content: typeof b.content === "string" ? packContent(b.content) : undefined,
-        featured_image_alt:
-          typeof b.featured_image_alt !== "undefined"
-            ? (typeof b.featured_image_alt === "string" ? b.featured_image_alt.trim() : (b.featured_image_alt ?? null))
-            : undefined,
-        meta_title:
-          typeof b.meta_title !== "undefined"
-            ? (typeof b.meta_title === "string" ? b.meta_title.trim() : (b.meta_title ?? null))
-            : undefined,
-        meta_description:
-          typeof b.meta_description !== "undefined"
-            ? (typeof b.meta_description === "string" ? b.meta_description.trim() : (b.meta_description ?? null))
-            : undefined,
-      };
+      const exists = await getReferenceI18nRow(id, locale);
 
-      if (b.apply_all_locales) {
-        await upsertReferenceI18nAllLocales(req.params.id, payload);
-      } else {
-        const exists = await getReferenceI18nRow(req.params.id, locale);
-        if (!exists) {
-          if (!b.title || !b.slug || !b.content) {
-            return reply.code(400).send({ error: { message: "missing_required_translation_fields" } });
-          }
-          await upsertReferenceI18n(req.params.id, locale, {
-            title: b.title!.trim(),
-            slug: b.slug!.trim(),
-            summary: typeof b.summary === "string" ? b.summary : (b.summary ?? null),
-            content: packContent(b.content!),
-            featured_image_alt:
-              typeof b.featured_image_alt === "string" ? b.featured_image_alt.trim() : (b.featured_image_alt ?? null),
-            meta_title: typeof b.meta_title === "string" ? b.meta_title.trim() : (b.meta_title ?? null),
-            meta_description: typeof b.meta_description === "string" ? b.meta_description.trim() : (b.meta_description ?? null),
+      if (!exists) {
+        if (!b.title || !b.slug || !b.content) {
+          return reply.code(400).send({
+            error: { message: "missing_required_translation_fields" },
           });
-        } else {
-          await upsertReferenceI18n(req.params.id, locale, payload);
         }
+        await upsertReferenceI18n(id, locale, {
+          title: b.title!.trim(),
+          slug: b.slug!.trim(),
+          content: packContent(b.content!),
+          summary:
+            typeof b.summary === "string"
+              ? b.summary.trim()
+              : b.summary ?? null,
+          featured_image_alt:
+            typeof b.featured_image_alt === "string"
+              ? b.featured_image_alt.trim()
+              : b.featured_image_alt ?? null,
+          meta_title:
+            typeof b.meta_title === "string"
+              ? b.meta_title.trim()
+              : b.meta_title ?? null,
+          meta_description:
+            typeof b.meta_description === "string"
+              ? b.meta_description.trim()
+              : b.meta_description ?? null,
+        });
+      } else {
+        await upsertReferenceI18n(id, locale, {
+          title:
+            typeof b.title === "string" ? b.title.trim() : undefined,
+          slug:
+            typeof b.slug === "string" ? b.slug.trim() : undefined,
+          content:
+            typeof b.content === "string"
+              ? packContent(b.content)
+              : undefined,
+          summary:
+            typeof b.summary !== "undefined"
+              ? typeof b.summary === "string"
+                ? b.summary.trim()
+                : b.summary ?? null
+              : undefined,
+          featured_image_alt:
+            typeof b.featured_image_alt !== "undefined"
+              ? typeof b.featured_image_alt === "string"
+                ? b.featured_image_alt.trim()
+                : b.featured_image_alt ?? null
+              : undefined,
+          meta_title:
+            typeof b.meta_title !== "undefined"
+              ? typeof b.meta_title === "string"
+                ? b.meta_title.trim()
+                : b.meta_title ?? null
+              : undefined,
+          meta_description:
+            typeof b.meta_description !== "undefined"
+              ? typeof b.meta_description === "string"
+                ? b.meta_description.trim()
+                : b.meta_description ?? null
+              : undefined,
+        });
       }
     }
 
-    const row = await getReferenceMergedById(locale, DEFAULT_LOCALE, req.params.id);
-    if (!row) return reply.code(404).send({ error: { message: "not_found" } });
+    const row = await getReferenceMergedById(
+      locale,
+      DEFAULT_LOCALE,
+      id,
+    );
+    if (!row) {
+      return reply.code(404).send({ error: { message: "not_found" } });
+    }
     return reply.send(row);
   } catch (err: any) {
     if (err?.code === "ER_DUP_ENTRY") {
-      return reply.code(409).send({ error: { message: "slug_already_exists" } });
+      return reply
+        .code(409)
+        .send({ error: { message: "slug_already_exists" } });
     }
-    req.log.error({ err }, "references_update_failed");
-    return reply.code(500).send({ error: { message: "references_update_failed" } });
+    (req as any).log.error({ err }, "references_update_failed");
+    return reply
+      .code(500)
+      .send({ error: { message: "references_update_failed" } });
   }
 };
 
-/* ================= references: DELETE ================= */
-export const removeReferenceAdmin: RouteHandler<{ Params: { id: string } }> = async (req, reply) => {
-  const affected = await deleteReferenceParent(req.params.id);
-  if (!affected) return reply.code(404).send({ error: { message: "not_found" } });
-  return reply.code(204).send();
-};
+/** DELETE (admin) */
+export const removeReferenceAdmin: RouteHandler = async (req, reply) => {
+  const { id } = (req.params ?? {}) as { id: string };
 
-/* ================= gallery: LIST ================= */
-export const listReferenceImagesAdmin: RouteHandler<{ Params: { id: string } }> = async (req, reply) => {
-  const items = await listReferenceImagesMerged(req.params.id, (req as any).locale, DEFAULT_LOCALE);
-  return reply.send(items);
-};
-
-/* ================= gallery: CREATE ================= */
-export const createReferenceImageAdmin: RouteHandler<{ Params: { id: string }; Body: UpsertReferenceImageBody }> = async (req, reply) => {
-  const parsed = upsertReferenceImageBodySchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    return reply.code(400).send({ error: { message: "invalid_body", issues: parsed.error.issues } });
+  const affected = await deleteReferenceParent(id);
+  if (!affected) {
+    return reply.code(404).send({ error: { message: "not_found" } });
   }
-  const b = parsed.data;
-  const locale = b.locale ?? (req as any).locale;
-
-  const imageId = randomUUID();
-  await createReferenceImageParent({
-    id: imageId,
-    reference_id: req.params.id,
-    asset_id: b.asset_id,
-    image_url: typeof b.image_url !== "undefined" ? (b.image_url ?? null) : null,
-    display_order: typeof b.display_order === "number" ? b.display_order : 0,
-    is_active: toBool(b.is_active) ? 1 : 0,
-    created_at: new Date() as any,
-    updated_at: new Date() as any,
-  });
-
-  const replicateAll = b.replicate_all_locales ?? true;
-  const payload = {
-    alt: typeof b.alt === "string" ? b.alt.trim() : (b.alt ?? null),
-    caption: typeof b.caption === "string" ? b.caption.trim() : (b.caption ?? null),
-  };
-  if (replicateAll) {
-    await upsertReferenceImageI18nAllLocales(imageId, payload);
-  } else {
-    await upsertReferenceImageI18n(imageId, locale, payload);
-  }
-
-  const items = await listReferenceImagesMerged(req.params.id, locale, DEFAULT_LOCALE);
-  return reply.code(201).send(items);
-};
-
-/* ================= gallery: UPDATE ================= */
-export const updateReferenceImageAdmin: RouteHandler<{ Params: { id: string; imageId: string }; Body: PatchReferenceImageBody }> = async (req, reply) => {
-  const parsed = patchReferenceImageBodySchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    return reply.code(400).send({ error: { message: "invalid_body", issues: parsed.error.issues } });
-  }
-  const b = parsed.data;
-  const locale = b.locale ?? (req as any).locale;
-
-  if (
-    typeof b.asset_id !== "undefined" ||
-    typeof b.image_url !== "undefined" ||
-    typeof b.display_order !== "undefined" ||
-    typeof b.is_active !== "undefined"
-  ) {
-    await updateReferenceImageParent(req.params.imageId, {
-      asset_id: typeof b.asset_id === "string" ? b.asset_id : undefined,
-      image_url: typeof b.image_url !== "undefined" ? (b.image_url ?? null) : undefined,
-      display_order: typeof b.display_order === "number" ? b.display_order : undefined,
-      is_active: typeof b.is_active !== "undefined" ? (toBool(b.is_active) ? 1 : 0) : undefined,
-    } as any);
-  }
-
-  if (typeof b.alt !== "undefined" || typeof b.caption !== "undefined" || b.apply_all_locales) {
-    const payload = {
-      alt: typeof b.alt !== "undefined" ? (typeof b.alt === "string" ? b.alt.trim() : (b.alt ?? null)) : undefined,
-      caption: typeof b.caption !== "undefined" ? (typeof b.caption === "string" ? b.caption.trim() : (b.caption ?? null)) : undefined,
-    };
-    if (b.apply_all_locales) {
-      await upsertReferenceImageI18nAllLocales(req.params.imageId, payload);
-    } else {
-      await upsertReferenceImageI18n(req.params.imageId, locale, payload);
-    }
-  }
-
-  const items = await listReferenceImagesMerged(req.params.id, locale, DEFAULT_LOCALE);
-  return reply.send(items);
-};
-
-/* ================= gallery: DELETE ================= */
-export const removeReferenceImageAdmin: RouteHandler<{ Params: { id: string; imageId: string } }> = async (req, reply) => {
-  const affected = await deleteReferenceImageParent(req.params.imageId);
-  if (!affected) return reply.code(404).send({ error: { message: "not_found" } });
   return reply.code(204).send();
 };
