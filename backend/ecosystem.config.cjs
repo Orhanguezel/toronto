@@ -1,9 +1,9 @@
 module.exports = {
   apps: [
     {
-      name: "ensotek-backend",
-      cwd: "/var/www/Ensotek/backend",
-      script: "/var/www/Ensotek/backend/dist/index.js",
+      name: "toronto-backend",
+      cwd: "/var/www/toronto/backend",
+      script: "/var/www/toronto/backend/dist/index.js",
 
       exec_mode: "fork",
       instances: 1,
@@ -12,10 +12,10 @@ module.exports = {
       max_memory_restart: "300M",
       env: {
         NODE_ENV: "production",
-        PORT: "8086",
+        PORT: "8088",
       },
-      out_file: "/var/log/pm2/ensotek-backend.out.log",
-      error_file: "/var/log/pm2/ensotek-backend.err.log",
+      out_file: "/var/log/pm2/toronto-backend.out.log",
+      error_file: "/var/log/pm2/toronto-backend.err.log",
       combine_logs: true,
       time: true,
     },
