@@ -19,18 +19,6 @@ module.exports = {
         PORT: "3010",
 
         NEXT_PUBLIC_SITE_URL: "https://ornek.guezelwebdesign.com",
-
-        NEXT_PUBLIC_REVALIDATE_SECRET: "***",
-
-        // .env’inizde bu şekilde: public API relative (nginx /api proxy)
-        NEXT_PUBLIC_API_URL: "/",
-
-        DEFAULT_LOCALE: "tr",
-        SUPPORTED_LOCALES: "tr,en,de",
-        NEXT_PUBLIC_DISABLE_SENTRY: "1",
-        NEXT_PUBLIC_WHATSAPP: "90555xxxxxxx",
-
-        // Server-side ihtiyaç olursa doğru backend portu:
         API_BASE_URL: "http://127.0.0.1:8088",
       },
 
